@@ -1,5 +1,88 @@
 # Onebrief Claude Code Knowledge Base
 
+## Artifact Map Feature
+Self-contained Canvas 2D visualization of how artifacts (cards → lists → boards → sections → output products → plan) relate to each other across a brief.
+
+### Files
+| File | App destination |
+|---|---|
+| `ArtifactMap/getArtifactMapData.ts` | `packages/bc-app/src/utils/ArtifactMap/getArtifactMapData.ts` |
+| `ArtifactMap/ArtifactMapEngine.ts` | `packages/bc-app/src/utils/ArtifactMap/ArtifactMapEngine.ts` |
+| `ArtifactMap/ArtifactMapOverlay.tsx` | `packages/bc-app/src/utils/ArtifactMap/ArtifactMapOverlay.tsx` |
+
+**Deploy command** (run on host machine after pushing):
+```bash
+cd /tmp/claude-repo && git pull && cp ArtifactMap/getArtifactMapData.ts ArtifactMap/ArtifactMapEngine.ts /root/repos/bc/packages/bc-app/src/utils/ArtifactMap/
+```
+
+---
+
+### Data Model (`getArtifactMapData.ts`)
+
+#### Display types
+`plan | section | document | presentation | c2board | timeline | map | whiteboard | cause_effect | board | list | card | reference`
+
+#### Link types
+- `contains` — primary parent relationship (drives layout tree)
+- `pins` — secondary embedding (document references a list, whiteboard embeds a board, etc.)
+- `sourced_from` — card ← uploaded reference doc
+- `ghost` — synced copy of a card in another plan
+
+#### 7-phase async pipeline
+| Phase | What it does |
+|---|---|
+| 1 — Section tree | `collab.briefs.getNestedStructureWithBrief()` walk; emits sections, documents, orders, presentations, maps, whiteboards; populates `boardsInSections` map |
+| 2 — Board IDs | Collects numeric board IDs + prefetches `getTitleAndType` |
+| 3 — Widgets | Processes whiteboard/presentation widgets; emits `pins` links to embedded lists/maps/boards |
+| 4 — Source docs | `emitSourceDocLink` for `fileDocumentId` on card/C2 nodes |
+| 5 — Boards | `processBoard` → `processListBoard / processC2Board / processDirectNodeBoard`; assigns `contains: board → list → card` |
+| 5.5 — Map overlays | Pins from map overlay features to cards/lists |
+| 5.9 — Fallback parent | Any artifact still without `primaryParent` after Phase 5 gets `contains: plan → artifact` |
+| 6 — C&E upgrade | Boards with cross-node edges → `cause_effect` type |
+| 7 — Cross-plan sync | Cards appearing in lists of other plans get `syncedToOtherPlans = true` |
+
+#### Key design rules
+- `primaryParent` map — once set, prevents duplicate `contains` links; later phases emit `pins` instead
+- Early phases (widgets, documents, orders, maps) **only emit `emitArtifact` + `pins`** — they never set `primaryParent`; Phase 5 owns all `contains` assignments for lists/cards
+- `boardsInSections = Map<numericBoardId, sectionArtId>` — set in Phase 1, read in Phase 5 to wire `contains: section → board`
+
+#### Order/document API facts (confirmed in production)
+- `collab.orders.get(orderId)` → `{ docId: number, title, ... }`
+- `collab.documents.get(docId)` → 14-key record; PM content is at `record.snapshot` (type `doc`, content array)
+- PM node type for embedded lists: `card_list` with `attrs.listId`
+- `getNodeDocument(id)` returns `null` for order/standalone documents; only works for node text docs
+- `collectPmListIds(pmNode)` walks any PM tree and extracts all `listId`/`sectionId` attrs regardless of node type name
+
+---
+
+### Rendering Engine (`ArtifactMapEngine.ts`)
+
+#### Tier layout (Y positions, plan at top)
+| Tier | Type | Color |
+|---|---|---|
+| 5 | plan | purple `#7357ff` |
+| 4.5 | section | indigo `#4f46e5` |
+| 4 | document, presentation | red / slate |
+| 3 | c2board, timeline, map, whiteboard, cause_effect | various |
+| 2 | board (list board) | blue `#3170aa` |
+| 1 | list | green `#198754` |
+| 0 | card | slate `#5b687b` |
+| −1 | reference | blue (below cards) |
+
+#### Connection anchors
+- `contains` links — **vertical**, child top-center → parent bottom-center (arrows point upward; plan only receives, cards only emit)
+- `pins` / `ghost` / `sourced_from` links — **horizontal**, left/right sides based on relative X position
+
+#### Virtual card nodes
+Cards in lists use virtual IDs `${cardId}⊕${listId}` in `nodePos`/`canonicalOf`/`primaryVisualOf`. A card in 3 lists has 3 virtual nodes. Only the virtual node whose parent list is in the highlighted chain is lit up (prevents cross-list ghost highlighting).
+
+#### Selection modes
+- **Normal (bidirectional BFS)** — `bfsBidirectional()`: Phase 1 goes ALL the way up (every ancestor to plan); Phase 2 goes ALL the way down (every descendant to cards). Phases are independent — going down does not trigger another upward pass.
+- **Impact (upward-only BFS)** — `bfsImpact()`: what would change if this artifact changes. Follows `contains`/`pins` upward, `ghost` forward (sync copies are impacted), does NOT flow down.
+- **Focus overlay** — re-runs layout algorithms (`layoutPlan`/`layoutSection`/`layoutBoard`/`layoutList`) scoped to only the highlighted node set, using compact `computeFocusTierY`. Stores results in `focusCanonicalOf`/`focusPrimaryVisualOf`; `renderFocus` swaps these in before calling `drawScene`.
+
+---
+
 ## Notion Workspace
 - Connected via Notion MCP
 - Key pages:
