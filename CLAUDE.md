@@ -216,3 +216,28 @@ SOCOM HQ, STRATCOM, NRO, USARC, Indiana NG/38th ID, USARSOUTH, Italian Army, Tai
 
 ### EUCOM Status
 EUCOM/USAREUR-AF — pilot ended Apr 30 2026, no contract signed → Pipeline
+
+---
+
+## GDT / Delivery Context
+
+Josh's second work context — field delivery operations, not engineering. Full profile: `agents/context/josh-gdt-profile.md`.
+
+**Agent context files:**
+- `agents/context/josh-gdt-profile.md` — GDT role, active accounts, team structure, Notion IDs, writing preferences
+- `agents/context/onebrief-product.md` — Customer hierarchy, military planning domain concepts
+- `agents/context/onebrief-growth-framework.md` — Sales metrics (CAC, LTV, pipeline velocity, DAU/MAU, ARPU) and buyer roles
+- `agents/context/bc-architecture.md` — bc monorepo architecture
+- `agents/context/ods-components.md` — ODS component reference
+- `agents/context/integrations.md` — External integrations
+
+**Shorthand:**
+- "The SOP" = Onebrief Customer Lifecycle SOP (Phase 0–3)
+- "TTT" / "cohort model" = Train-the-Trainer / internal champion framework
+- "Go/No-Go" = Pilot Qualification / Conditions-Check Framework
+
+**Writing rules (always apply to GDT work):**
+- No em-dashes — commas, semicolons, or restructure
+- Lead with problem and solution; do not over-explain
+- Military terminology is correct: MDMP, J-staff, battle rhythm, CONOP, OPORD, CCIR, etc.
+- Documents read like a practitioner wrote them, not a consultant
