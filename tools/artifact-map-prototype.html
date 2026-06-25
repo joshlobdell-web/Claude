@@ -1,0 +1,1607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Artifact Map</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; overflow: hidden; height: 100vh; }
+
+/* ── Drop screen ── */
+#drop-screen {
+  position: fixed; inset: 0; z-index: 100;
+  background: #0d1117;
+  display: flex; align-items: center; justify-content: center;
+}
+#drop-zone {
+  border: 2px dashed #30363d; border-radius: 12px;
+  padding: 60px 80px; text-align: center;
+  transition: border-color 0.2s, background 0.2s; user-select: none;
+}
+#drop-zone.over { border-color: #58a6ff; background: rgba(88,166,255,0.06); }
+#drop-zone h2 { font-size: 1.25rem; color: #8b949e; margin-bottom: 16px; font-weight: 400; }
+#drop-zone p  { font-size: 0.875rem; color: #484f58; margin-bottom: 24px; }
+#browse-btn {
+  display: inline-block; padding: 8px 20px;
+  background: #21262d; border: 1px solid #30363d; border-radius: 6px;
+  color: #c9d1d9; font-size: 0.875rem; cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+#browse-btn:hover { background: #30363d; border-color: #58a6ff; }
+#file-input { display: none; }
+
+/* ── Main app ── */
+#app { display: none; flex-direction: row; height: 100vh; }
+
+/* ── Toolbar ── */
+#toolbar {
+  position: fixed; top: 0; left: 0; right: 0; height: 44px; z-index: 50;
+  background: #161b22; border-bottom: 1px solid #21262d;
+  display: none; align-items: center; gap: 6px; padding: 0 12px; overflow-x: auto;
+}
+.tb-btn {
+  padding: 5px 11px; border-radius: 6px; border: 1px solid #30363d;
+  background: #21262d; color: #8b949e; font-size: 0.8rem; cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap; flex-shrink: 0;
+}
+.tb-btn:hover { background: #30363d; color: #c9d1d9; }
+.tb-btn.active { background: #1f3358; border-color: #58a6ff; color: #58a6ff; }
+.tb-btn.danger { border-color: #f85149; color: #f85149; }
+.tb-btn.danger:hover { background: #2d1018; }
+.tb-btn:disabled { opacity: 0.4; cursor: default; }
+.tb-sep { width: 1px; background: #21262d; height: 24px; margin: 0 4px; flex-shrink: 0; }
+.plan-pill {
+  padding: 3px 10px; border-radius: 12px; font-size: 0.75rem; border: 1px solid;
+  cursor: default; white-space: nowrap; max-width: 160px;
+  overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;
+}
+#plan-pills { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* ── Canvas ── */
+#canvas-wrap { flex: 1; position: relative; overflow: hidden; margin-top: 44px; }
+#main-canvas { display: block; cursor: grab; }
+#main-canvas.grabbing { cursor: grabbing; }
+
+/* ── Tier labels ── */
+#tier-labels {
+  position: fixed; left: 0; top: 44px; width: 86px;
+  height: calc(100vh - 44px); pointer-events: none; z-index: 10; display: none;
+}
+.tier-label {
+  position: absolute; left: 0; width: 80px;
+  font-size: 0.59rem; color: #484f58; text-transform: uppercase;
+  letter-spacing: 0.07em; text-align: right; padding-right: 8px; line-height: 1.3;
+}
+
+/* ── Sidebar ── */
+#sidebar {
+  width: 280px; min-width: 280px; background: #161b22;
+  border-left: 1px solid #21262d; overflow-y: auto; margin-top: 44px;
+  padding: 16px; display: flex; flex-direction: column; gap: 10px;
+}
+#sidebar.hidden { display: none; }
+#sb-type-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 8px; border-radius: 4px; font-size: 0.7rem;
+  font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; border: 1px solid;
+}
+#sb-title { font-size: 0.95rem; font-weight: 600; color: #e6edf3; line-height: 1.3; word-break: break-word; }
+#sb-plan  { font-size: 0.75rem; color: #484f58; }
+.sb-section-title {
+  font-size: 0.65rem; color: #484f58; text-transform: uppercase;
+  letter-spacing: 0.1em; margin-bottom: 4px; margin-top: 6px;
+}
+.sb-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: 6px;
+  cursor: pointer; transition: background 0.12s; font-size: 0.8rem; color: #8b949e;
+}
+.sb-item:hover { background: #21262d; color: #c9d1d9; }
+.sb-item-dot   { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.sb-item-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-badge {
+  font-size: 0.65rem; font-weight: 700; padding: 1px 5px;
+  border-radius: 3px; background: #30363d; color: #8b949e; flex-shrink: 0;
+}
+.sb-badge.d1 { background: #1f3358; color: #58a6ff; }
+.sb-badge.d2 { background: #2d2305; color: #e3b341; }
+.sb-badge.d3 { background: #2d1800; color: #f0883e; }
+
+/* ── Focus overlay ── */
+#focus-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(1,4,9,0.96); display: none; flex-direction: column;
+}
+#focus-overlay.visible { display: flex; }
+#focus-header {
+  height: 44px; background: #161b22; border-bottom: 1px solid #21262d;
+  display: flex; align-items: center; padding: 0 16px; gap: 12px; flex-shrink: 0;
+}
+#focus-title { font-size: 0.9rem; color: #e6edf3; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#focus-close {
+  padding: 5px 12px; border-radius: 6px; border: 1px solid #30363d;
+  background: #21262d; color: #8b949e; cursor: pointer; font-size: 0.8rem; flex-shrink: 0;
+}
+#focus-close:hover { background: #30363d; color: #c9d1d9; }
+#focus-canvas-wrap { flex: 1; overflow: hidden; position: relative; }
+#focus-canvas { display: block; cursor: grab; }
+#focus-canvas.grabbing { cursor: grabbing; }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div id="drop-screen">
+  <div id="drop-zone">
+    <h2>Artifact Map Viewer</h2>
+    <p>Drop one or more artifact-map JSON files here</p>
+    <label id="browse-btn" for="file-input">Browse files</label>
+    <input type="file" id="file-input" accept=".json" multiple>
+  </div>
+</div>
+
+<div id="tier-labels">
+  <div class="tier-label" id="tl-5">PLAN</div>
+  <div class="tier-label" id="tl-4">OUTPUT<br>PRODUCTS</div>
+  <div class="tier-label" id="tl-3">VISUAL<br>TOOLS</div>
+  <div class="tier-label" id="tl-2">LIST<br>BOARDS</div>
+  <div class="tier-label" id="tl-1">LISTS</div>
+  <div class="tier-label" id="tl-0">CARDS</div>
+  <div class="tier-label" id="tl-ref">UPLOADED<br>REFS</div>
+</div>
+
+<div id="toolbar">
+  <button class="tb-btn" id="btn-reset">⌖ Reset</button>
+  <button class="tb-btn" id="btn-impact">⚡ Impact</button>
+  <button class="tb-btn" id="btn-deepdive">🔍 Deep Dive</button>
+  <button class="tb-btn" id="btn-focus" disabled>⊙ Focus</button>
+  <div class="tb-sep"></div>
+  <button class="tb-btn danger" id="btn-clear">✕ Clear</button>
+  <div class="tb-sep"></div>
+  <div id="plan-pills"></div>
+</div>
+
+<div id="app">
+  <div id="canvas-wrap">
+    <canvas id="main-canvas"></canvas>
+  </div>
+  <div id="sidebar" class="hidden">
+    <div><span id="sb-type-badge"></span></div>
+    <div id="sb-title"></div>
+    <div id="sb-plan"></div>
+    <div id="sb-connections"></div>
+  </div>
+</div>
+
+<div id="focus-overlay">
+  <div id="focus-header">
+    <span id="focus-title">Focus</span>
+    <button id="focus-close">✕ Close</button>
+  </div>
+  <div id="focus-canvas-wrap">
+    <canvas id="focus-canvas"></canvas>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFIG
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TYPE_CONFIG = {
+  card:         { tier:0,  color:'#6e7681', bg:'#1c1f24', label:'Card'         },
+  list:         { tier:1,  color:'#3fb950', bg:'#0d2010', label:'List'         },
+  board:        { tier:2,  color:'#58a6ff', bg:'#0d2035', label:'List Board'   },
+  c2board:      { tier:3,  color:'#39d353', bg:'#0a1a20', label:'C2 Diagram'   },
+  timeline:     { tier:3,  color:'#e3b341', bg:'#2d1f05', label:'Timeline'     },
+  map:          { tier:3,  color:'#f0883e', bg:'#2d1800', label:'Map'          },
+  whiteboard:   { tier:3,  color:'#a371f7', bg:'#1f1035', label:'Whiteboard'   },
+  cause_effect: { tier:3,  color:'#ff7b72', bg:'#2d0e0a', label:'C&E'          },
+  presentation: { tier:4,  color:'#f47067', bg:'#2d1018', label:'Presentation' },
+  document:     { tier:4,  color:'#8b949e', bg:'#1a1f26', label:'Document'     },
+  plan:         { tier:5,  color:'#6e40c9', bg:'#1a1030', label:'Plan'         },
+  reference:    { tier:-1, color:'#4493f8', bg:'#0a1525', label:'Reference'    },
+};
+// Treat legacy types as their canonical equivalents
+const TYPE_ALIAS = { mapboard:'map', order:'document', c2unit:'card' };
+
+const LINK_CONFIG = {
+  contains:     { color:'#4a9eff', dash:[],    label:'contains'     },
+  ghost:        { color:'#a855f7', dash:[7,4], label:'synced from'  },
+  pins:         { color:'#f59e0b', dash:[4,3], label:'pins'         },
+  sourced_from: { color:'#34d399', dash:[5,3], label:'source doc'   },
+};
+
+const NODE_W  = 158;
+const NODE_H  = 50;
+const H_GAP   = 14;
+const PLAN_GAP = 80;
+const CARD_STACK_MAX  = 10;   // cards per column
+const MAX_COLS_PER_ROW = 3;   // columns before wrapping to next card row
+const V_CARD_STEP     = 54;
+const CARD_ROW_GAP    = 70;   // vertical gap between row groups
+
+const TIER_Y = { 5:40, 4:150, 3:270, 2:390, 1:510, 0:640, '-1':1800 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────────────────────
+
+let allArtifacts = {};
+let allLinks     = [];
+let planMeta     = {};
+let nodePos      = {};
+let planBounds   = {};
+let canonicalOf     = {}; // visualId → canonicalId  (only for duplicated visual nodes)
+let primaryVisualOf = {}; // canonicalId → primary visualId
+
+let selectedId   = null;
+let modeImpact   = false;
+let modeDeepDive = false;
+
+let loadedPlans  = [];
+
+// Main canvas pan/zoom
+let panX = 0, panY = 0, scale = 1;
+let isPanning = false, panSX = 0, panSY = 0, panSPX = 0, panSPY = 0;
+
+// Focus canvas pan/zoom
+let fPanX = 0, fPanY = 0, fScale = 1;
+let fIsPanning = false, fPanSX = 0, fPanSY = 0, fPanSPX = 0, fPanSPY = 0;
+
+let focusOpen       = false;
+let focusNodeIds    = [];
+let focusNodePos    = {};
+let focusPlanBounds = {};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DOM REFS
+// ─────────────────────────────────────────────────────────────────────────────
+
+const dropScreen    = document.getElementById('drop-screen');
+const dropZone      = document.getElementById('drop-zone');
+const fileInput     = document.getElementById('file-input');
+const appEl         = document.getElementById('app');
+const toolbarEl     = document.getElementById('toolbar');
+const tierLabelsEl  = document.getElementById('tier-labels');
+const mainCanvas    = document.getElementById('main-canvas');
+const mCtx          = mainCanvas.getContext('2d');
+const canvasWrap    = document.getElementById('canvas-wrap');
+const sidebar       = document.getElementById('sidebar');
+const sbTypeBadge   = document.getElementById('sb-type-badge');
+const sbTitle       = document.getElementById('sb-title');
+const sbPlan        = document.getElementById('sb-plan');
+const sbConnections = document.getElementById('sb-connections');
+const btnReset      = document.getElementById('btn-reset');
+const btnImpact     = document.getElementById('btn-impact');
+const btnDeepDive   = document.getElementById('btn-deepdive');
+const btnFocus      = document.getElementById('btn-focus');
+const btnClear      = document.getElementById('btn-clear');
+const planPillsEl   = document.getElementById('plan-pills');
+const focusOverlay  = document.getElementById('focus-overlay');
+const focusTitleEl  = document.getElementById('focus-title');
+const focusCloseEl  = document.getElementById('focus-close');
+const focusCanvas   = document.getElementById('focus-canvas');
+const fCtx          = focusCanvas.getContext('2d');
+const focusWrap     = document.getElementById('focus-canvas-wrap');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FILE LOADING
+// ─────────────────────────────────────────────────────────────────────────────
+
+function loadFiles(files) {
+  const pending = [];
+  for (const f of files) {
+    pending.push(new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload  = e => { try { resolve(JSON.parse(e.target.result)); } catch (err) { reject(err); } };
+      reader.onerror = reject;
+      reader.readAsText(f);
+    }));
+  }
+  Promise.all(pending).then(results => {
+    let added = 0;
+    for (const data of results) {
+      if (data && Array.isArray(data.artifacts) && Array.isArray(data.links)) {
+        loadedPlans.push(data);
+        added++;
+      }
+    }
+    if (added) {
+      showApp();
+      mergeAndRender();
+    }
+  }).catch(err => console.error('[artifact-map] load error', err));
+}
+
+function showApp() {
+  dropScreen.style.display   = 'none';
+  appEl.style.display        = 'flex';
+  toolbarEl.style.display    = 'flex';
+  tierLabelsEl.style.display = 'block';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MERGE + RENDER PIPELINE
+// ─────────────────────────────────────────────────────────────────────────────
+
+function mergeAndRender() {
+  allArtifacts = {};
+  allLinks     = [];
+  planMeta     = {};
+
+  for (const data of loadedPlans) {
+    const pId = 'plan_' + data.plan.id;
+    planMeta[pId] = { id: data.plan.id, title: data.plan.title };
+    for (const art of data.artifacts) {
+      const isCross = art.sourceBriefId != null && art.sourceBriefId !== data.plan.id;
+      const existing = allArtifacts[art.id];
+      // Prefer the native version: if this artifact originated in the current plan, it wins
+      // over any previously-loaded cross-plan (ghost) version, regardless of load order.
+      if (!existing || (!isCross && existing.crossPlan)) {
+        allArtifacts[art.id] = { ...art, crossPlan: isCross };
+      }
+    }
+  }
+
+  // Merge links (deduplicate)
+  const linkKeys = new Set();
+  for (const data of loadedPlans) {
+    for (const lk of data.links) {
+      const key = lk.type + ':' + lk.src + ':' + lk.tgt;
+      if (!linkKeys.has(key)) {
+        linkKeys.add(key);
+        allLinks.push({ ...lk });
+      }
+    }
+  }
+
+  // Ghost mechanism: an artifact is cross-plan if the same artifact ID appears in
+  // multiple plan exports. Native plan = sourceBriefId when present, else load order.
+  const seenInPlans = {}; // artId → [planId, ...] in load order
+  for (const data of loadedPlans) {
+    const pId = 'plan_' + data.plan.id;
+    for (const art of data.artifacts) {
+      if (!seenInPlans[art.id]) seenInPlans[art.id] = [];
+      seenInPlans[art.id].push(pId);
+    }
+  }
+
+  for (const [artId, plans] of Object.entries(seenInPlans)) {
+    if (plans.length <= 1) continue;
+    const art = allArtifacts[artId];
+    const nativePlanId = (art && art.sourceBriefId != null)
+      ? 'plan_' + art.sourceBriefId
+      : plans[0];
+    for (let i = 0; i < allLinks.length; i++) {
+      const lk = allLinks[i];
+      if (lk.type !== 'contains' || lk.tgt !== artId) continue;
+      const parentArt = allArtifacts[lk.src];
+      if (!parentArt || parentArt.plan === nativePlanId) continue;
+      const ghostId = artId + '__ghost__' + parentArt.plan;
+      if (!allArtifacts[ghostId]) {
+        allArtifacts[ghostId] = { ...allArtifacts[artId], id: ghostId,
+          plan: parentArt.plan, isGhost: true, ghostOf: artId,
+          ghostParent: lk.src, crossPlan: false, syncedToOtherPlans: false };
+      }
+      allLinks[i] = { type: 'contains', src: lk.src, tgt: ghostId };
+      const ghostKey = 'ghost:' + artId + ':' + ghostId;
+      if (!linkKeys.has(ghostKey)) {
+        linkKeys.add(ghostKey);
+        allLinks.push({ type: 'ghost', src: artId, tgt: ghostId });
+      }
+    }
+  }
+
+  // Phase 2 ghost expansion: ghost lists get ghost cards beneath them; ghost artifacts
+  // mirror canonical pins so ghost boards stay visually connected to ghost sections.
+  // This completes the synced subtree in the destination plan without touching the main
+  // ghost loop (which handles top-level cross-plan detection).
+  {
+    const linkSnap   = allLinks.slice(); // snapshot before adding new links
+    const ghostItems = Object.entries(allArtifacts).filter(([, a]) => a.isGhost);
+    for (const [ghostId, ghostArt] of ghostItems) {
+      const canonId     = ghostArt.ghostOf;
+      const ghostPlanId = ghostArt.plan;
+      for (const lk of linkSnap) {
+        // Ghost section → add ghost cards under it
+        if (ghostArt.type === 'list' && lk.type === 'contains' && lk.src === canonId) {
+          const cardArt = allArtifacts[lk.tgt];
+          if (cardArt && cardArt.type === 'card') {
+            const cGhostId = lk.tgt + '__ghost__' + ghostPlanId;
+            if (!allArtifacts[cGhostId]) {
+              allArtifacts[cGhostId] = { ...cardArt, id: cGhostId, plan: ghostPlanId,
+                isGhost: true, ghostOf: lk.tgt, ghostParent: ghostId, crossPlan: false };
+            }
+            const ck = 'contains:' + ghostId + ':' + cGhostId;
+            if (!linkKeys.has(ck)) { linkKeys.add(ck); allLinks.push({ type: 'contains', src: ghostId, tgt: cGhostId }); }
+            const ak = 'ghost:' + lk.tgt + ':' + cGhostId;
+            if (!linkKeys.has(ak)) { linkKeys.add(ak); allLinks.push({ type: 'ghost', src: lk.tgt, tgt: cGhostId }); }
+          }
+        }
+        // Any ghost → mirror canonical pins to co-located ghosts in same plan
+        if (lk.type === 'pins' && lk.src === canonId) {
+          const tGhostId = lk.tgt + '__ghost__' + ghostPlanId;
+          if (allArtifacts[tGhostId]) {
+            const pk = 'pins:' + ghostId + ':' + tGhostId;
+            if (!linkKeys.has(pk)) { linkKeys.add(pk); allLinks.push({ type: 'pins', src: ghostId, tgt: tGhostId }); }
+          }
+        }
+      }
+    }
+  }
+
+  computeLayout();
+  buildPlanPills();
+  resizeCanvas();
+  fitViewMain();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LAYOUT
+// ─────────────────────────────────────────────────────────────────────────────
+
+function computeLayout() {
+  nodePos         = {};
+  planBounds      = {};
+  canonicalOf     = {};
+  primaryVisualOf = {};
+
+  // Build ALL children per parent using every contains link
+  const allChildren = {};
+  for (const lk of allLinks) {
+    if (lk.type !== 'contains') continue;
+    if (!allChildren[lk.src]) allChildren[lk.src] = [];
+    if (!allChildren[lk.src].includes(lk.tgt)) allChildren[lk.src].push(lk.tgt);
+  }
+
+  let curOffsetX = 100;
+  const planIds  = Object.keys(allArtifacts).filter(
+    id => allArtifacts[id]?.type === 'plan'
+  );
+
+  for (const pid of planIds) {
+    const w = layoutPlan(pid, curOffsetX, allChildren);
+    curOffsetX += w + PLAN_GAP;
+  }
+
+  // Orphans: anything not yet positioned
+  let orphanX = curOffsetX;
+  for (const id of Object.keys(allArtifacts)) {
+    if (nodePos[id] || primaryVisualOf[id]) continue;
+    const art = allArtifacts[id];
+    if (!art) continue;
+    const cfg = cfgFor(art);
+    nodePos[id] = { x: orphanX, y: cfg ? (TIER_Y[cfg.tier] ?? TIER_Y[0]) : TIER_Y[0] };
+    orphanX += NODE_W + H_GAP;
+  }
+
+  // Plan bounding boxes (scan all visual + canonical nodes by plan)
+  for (const pid of planIds) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [vId, pos] of Object.entries(nodePos)) {
+      const cId = canonicalOf[vId] || vId;
+      const art = allArtifacts[cId];
+      if (!art || art.plan !== pid) continue;
+      minX = Math.min(minX, pos.x);       minY = Math.min(minY, pos.y);
+      maxX = Math.max(maxX, pos.x+NODE_W); maxY = Math.max(maxY, pos.y+NODE_H);
+    }
+    if (isFinite(minX)) {
+      planBounds[pid] = { x:minX-14, y:minY-14, w:maxX-minX+28, h:maxY-minY+28 };
+    }
+  }
+}
+
+function resolvedType(art) {
+  if (!art) return null;
+  return TYPE_ALIAS[art.type] || art.type;
+}
+
+function cfgFor(art) {
+  return TYPE_CONFIG[resolvedType(art)] || TYPE_CONFIG[art.type] || null;
+}
+
+function layoutPlan(planId, startX, allChildren) {
+  const planCh = allChildren[planId] || [];
+
+  const tier2ids = planCh.filter(id => resolvedType(allArtifacts[id]) === 'board');
+  const tier3ids = planCh.filter(id => {
+    const t = resolvedType(allArtifacts[id]);
+    return t && ['c2board','timeline','map','whiteboard','cause_effect'].includes(t);
+  });
+  const tier4ids = planCh.filter(id => {
+    const t = resolvedType(allArtifacts[id]);
+    return t && ['presentation','document'].includes(t);
+  });
+  const refIds   = planCh.filter(id => resolvedType(allArtifacts[id]) === 'reference');
+  const tier1ids = planCh.filter(id => resolvedType(allArtifacts[id]) === 'list');
+
+  let curX = startX;
+
+  for (const bid of tier2ids) {
+    const w = layoutBoard(bid, curX, allChildren);
+    curX += w + H_GAP;
+  }
+
+  for (const lid of tier1ids) {
+    const w = layoutList(lid, curX, allChildren);
+    curX += w + H_GAP;
+  }
+
+  for (const cbid of tier3ids) {
+    if (resolvedType(allArtifacts[cbid]) === 'c2board') {
+      const w = layoutC2Board(cbid, curX, allChildren);
+      if (w > 0) curX += w + H_GAP;
+    }
+  }
+
+  let baseWidth = curX - startX;
+  if (baseWidth > H_GAP) baseWidth -= H_GAP;
+  if (baseWidth <= 0)    baseWidth  = NODE_W;
+
+  const planCenterX = startX + baseWidth / 2;
+
+  if (tier3ids.length > 0) {
+    const totalW = tier3ids.length * NODE_W + (tier3ids.length - 1) * H_GAP;
+    let tx = planCenterX - totalW / 2;
+    for (const id of tier3ids) {
+      if (!nodePos[id]) nodePos[id] = { x: tx, y: TIER_Y[3] };
+      tx += NODE_W + H_GAP;
+    }
+  }
+
+  if (tier4ids.length > 0) {
+    const totalW = tier4ids.length * NODE_W + (tier4ids.length - 1) * H_GAP;
+    let tx = planCenterX - totalW / 2;
+    for (const id of tier4ids) {
+      nodePos[id] = { x: tx, y: TIER_Y[4] };
+      tx += NODE_W + H_GAP;
+    }
+  }
+
+  if (refIds.length > 0) {
+    const totalW = refIds.length * NODE_W + (refIds.length - 1) * H_GAP;
+    let tx = planCenterX - totalW / 2;
+    for (const id of refIds) {
+      nodePos[id] = { x: tx, y: TIER_Y['-1'] };
+      tx += NODE_W + H_GAP;
+    }
+  }
+
+  nodePos[planId] = { x: planCenterX - NODE_W / 2, y: TIER_Y[5] };
+
+  return baseWidth;
+}
+
+function layoutBoard(boardId, startX, allChildren) {
+  const lists = (allChildren[boardId] || []).filter(
+    id => allArtifacts[id]?.type === 'list'
+  );
+  if (lists.length === 0) {
+    nodePos[boardId] = { x: startX, y: TIER_Y[2] };
+    return NODE_W;
+  }
+  let curX = startX;
+  for (const lid of lists) {
+    const w = layoutList(lid, curX, allChildren);
+    curX += w + H_GAP;
+  }
+  const boardWidth   = curX - startX - H_GAP;
+  const boardCenterX = startX + boardWidth / 2;
+  nodePos[boardId]   = { x: boardCenterX - NODE_W / 2, y: TIER_Y[2] };
+  return boardWidth;
+}
+
+function layoutC2Board(c2boardId, startX, allChildren) {
+  const units = (allChildren[c2boardId] || []).filter(
+    id => allArtifacts[id] && resolvedType(allArtifacts[id]) === 'card'
+  );
+  if (units.length === 0) return 0;
+
+  const totalCols  = Math.ceil(units.length / CARD_STACK_MAX);
+  const colsPerRow = Math.min(totalCols, MAX_COLS_PER_ROW);
+
+  for (let i = 0; i < units.length; i++) {
+    const col      = Math.floor(i / CARD_STACK_MAX);
+    const row      = i % CARD_STACK_MAX;
+    const rowGroup = Math.floor(col / MAX_COLS_PER_ROW);
+    const colInRow = col % MAX_COLS_PER_ROW;
+    // C2 cards use canonical positions — they're unique to this board
+    if (!nodePos[units[i]] && !primaryVisualOf[units[i]]) {
+      nodePos[units[i]] = {
+        x: startX + colInRow * (NODE_W + H_GAP),
+        y: TIER_Y[0] + row * V_CARD_STEP + rowGroup * (CARD_STACK_MAX * V_CARD_STEP + CARD_ROW_GAP),
+      };
+    }
+  }
+
+  return colsPerRow * NODE_W + (colsPerRow - 1) * H_GAP;
+}
+
+function layoutList(listId, startX, allChildren) {
+  const cards = (allChildren[listId] || []).filter(
+    id => allArtifacts[id]?.type === 'card'
+  );
+
+  if (cards.length === 0) {
+    nodePos[listId] = { x: startX, y: TIER_Y[1] };
+    return NODE_W;
+  }
+
+  const totalCols   = Math.ceil(cards.length / CARD_STACK_MAX);
+  const colsPerRow  = Math.min(totalCols, MAX_COLS_PER_ROW);
+  const rowCount    = Math.ceil(totalCols / MAX_COLS_PER_ROW);
+
+  for (let i = 0; i < cards.length; i++) {
+    const col      = Math.floor(i / CARD_STACK_MAX);
+    const row      = i % CARD_STACK_MAX;
+    const rowGroup = Math.floor(col / MAX_COLS_PER_ROW);
+    const colInRow = col % MAX_COLS_PER_ROW;
+
+    const vId = cards[i] + '⊕' + listId;
+    nodePos[vId] = {
+      x: startX + colInRow * (NODE_W + H_GAP),
+      y: TIER_Y[0] + row * V_CARD_STEP + rowGroup * (CARD_STACK_MAX * V_CARD_STEP + CARD_ROW_GAP),
+    };
+    canonicalOf[vId] = cards[i];
+    if (!primaryVisualOf[cards[i]]) primaryVisualOf[cards[i]] = vId;
+  }
+
+  const listWidth = colsPerRow * NODE_W + (colsPerRow - 1) * H_GAP;
+  nodePos[listId] = { x: startX + listWidth / 2 - NODE_W / 2, y: TIER_Y[1] };
+  return listWidth;
+}
+
+// Position helpers — always use a specific positions map so focus overlay
+// and main canvas both resolve correctly.
+function makePosHelpers(positions) {
+  function effPos(id) {
+    if (positions[id]) return positions[id];
+    const v = primaryVisualOf[id];
+    if (v && positions[v]) return positions[v];
+    return null;
+  }
+  function containPos(srcId, tgtId) {
+    const vId = tgtId + '⊕' + srcId;
+    if (positions[vId]) return positions[vId];
+    return effPos(tgtId);
+  }
+  return { effPos, containPos };
+}
+
+// Convenience wrappers for the main canvas (used outside drawScene)
+function getEffectivePos(id)            { return makePosHelpers(nodePos).effPos(id); }
+function getContainedPos(srcId, tgtId)  { return makePosHelpers(nodePos).containPos(srcId, tgtId); }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CANVAS SIZING
+// ─────────────────────────────────────────────────────────────────────────────
+
+function resizeCanvas() {
+  const w = canvasWrap.clientWidth  || window.innerWidth;
+  const h = canvasWrap.clientHeight || (window.innerHeight - 44);
+  mainCanvas.width  = w;
+  mainCanvas.height = h;
+  if (focusOpen) resizeFocusCanvas();
+}
+
+function resizeFocusCanvas() {
+  const w = focusWrap.clientWidth  || window.innerWidth;
+  const h = focusWrap.clientHeight || (window.innerHeight - 44);
+  focusCanvas.width  = w;
+  focusCanvas.height = h;
+}
+
+function fitViewMain() {
+  const r = computeFitView(mainCanvas, nodePos, Object.keys(nodePos));
+  panX = r.panX; panY = r.panY; scale = r.scale;
+  renderAll();
+}
+
+function computeFitView(canvas, positions, ids) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const id of ids) {
+    const p = positions[id];
+    if (!p) continue;
+    minX = Math.min(minX, p.x);       minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x+NODE_W); maxY = Math.max(maxY, p.y+NODE_H);
+  }
+  if (!isFinite(minX)) return { panX:0, panY:0, scale:1 };
+  const cw  = canvas.width  || 800;
+  const ch  = canvas.height || 600;
+  const pad = 60;
+  const s   = Math.min(cw/(maxX-minX+pad*2), ch/(maxY-minY+pad*2), 1.5);
+  const px  = (cw - (maxX-minX)*s) / 2 - minX*s;
+  const py  = (ch - (maxY-minY)*s) / 2 - minY*s;
+  return { panX: px, panY: py, scale: s };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PLAN PILLS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function buildPlanPills() {
+  planPillsEl.innerHTML = '';
+  for (const [pid, meta] of Object.entries(planMeta)) {
+    const cfg  = TYPE_CONFIG.plan;
+    const pill = document.createElement('div');
+    pill.className       = 'plan-pill';
+    pill.title           = meta.title;
+    pill.textContent     = meta.title;
+    pill.style.color       = cfg.color;
+    pill.style.borderColor = cfg.color + '66';
+    pill.style.background  = cfg.bg;
+    planPillsEl.appendChild(pill);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BFS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function bfsUpward(startId, maxDepth) {
+  const visited = new Map([[startId, 0]]);
+  let frontier  = [startId];
+  for (let d = 1; d <= maxDepth; d++) {
+    const next = [];
+    for (const cur of frontier) {
+      for (const lk of allLinks) {
+        if (['contains','pins'].includes(lk.type) && lk.tgt === cur && !visited.has(lk.src)) {
+          visited.set(lk.src, d); next.push(lk.src);
+        }
+        if (lk.type === 'ghost') {
+          const other = lk.src === cur ? lk.tgt : lk.tgt === cur ? lk.src : null;
+          if (other && !visited.has(other)) { visited.set(other, d); next.push(other); }
+        }
+        // sourced_from: surface the source doc when traversing upward from a card
+        if (lk.type === 'sourced_from' && lk.tgt === cur && !visited.has(lk.src)) {
+          visited.set(lk.src, d); next.push(lk.src);
+        }
+      }
+    }
+    frontier = next;
+    if (!frontier.length) break;
+  }
+  return visited;
+}
+
+function bfsAllDirections(startId, maxDepth) {
+  const visited = new Map([[startId, 0]]);
+  const startArt = allArtifacts[startId];
+  const startIsCard = startArt && startArt.type === 'card';
+  let frontier = [startId];
+  for (let d = 1; d <= maxDepth; d++) {
+    const next = [];
+    for (const cur of frontier) {
+      for (const lk of allLinks) {
+        // Ghost: always bidirectional
+        if (lk.type === 'ghost') {
+          const other = lk.src === cur ? lk.tgt : lk.tgt === cur ? lk.src : null;
+          if (other && !visited.has(other)) { visited.set(other, d); next.push(other); }
+          continue;
+        }
+        // Contains downward: if start is a card, never go down into other cards
+        if (lk.type === 'contains' && lk.src === cur && !visited.has(lk.tgt)) {
+          const tgt = allArtifacts[lk.tgt];
+          if (startIsCard && tgt && tgt.type === 'card') continue;
+          visited.set(lk.tgt, d); next.push(lk.tgt);
+        }
+        // Contains upward: always follow, but only 2 levels to avoid plan-level cascade
+        if (lk.type === 'contains' && lk.tgt === cur && !visited.has(lk.src) && d <= 2) {
+          visited.set(lk.src, d); next.push(lk.src);
+        }
+        // pins: bidirectional
+        if (lk.type === 'pins') {
+          if (lk.src === cur && !visited.has(lk.tgt)) { visited.set(lk.tgt, d); next.push(lk.tgt); }
+          if (lk.tgt === cur && !visited.has(lk.src)) { visited.set(lk.src, d); next.push(lk.src); }
+        }
+        // sourced_from: bidirectional (click card → see source doc; click source doc → see its cards)
+        if (lk.type === 'sourced_from') {
+          if (lk.src === cur && !visited.has(lk.tgt)) { visited.set(lk.tgt, d); next.push(lk.tgt); }
+          if (lk.tgt === cur && !visited.has(lk.src)) { visited.set(lk.src, d); next.push(lk.src); }
+        }
+      }
+    }
+    frontier = next;
+    if (!frontier.length) break;
+  }
+  return visited;
+}
+
+// For every highlighted list, add all cards it contains — a list implies its contents.
+function cardCascade(highlighted) {
+  const expanded = new Map(highlighted);
+  for (const [id, depth] of highlighted) {
+    const art = allArtifacts[id];
+    if (!art || art.type !== 'list') continue;
+    for (const lk of allLinks) {
+      if (lk.type === 'contains' && lk.src === id && !expanded.has(lk.tgt)) {
+        const child = allArtifacts[lk.tgt];
+        if (child?.type === 'card') expanded.set(lk.tgt, depth + 1);
+      }
+    }
+  }
+  return expanded;
+}
+
+function getHighlightedNodes() {
+  if (!selectedId) return null;
+  let result;
+  if (modeDeepDive) result = bfsAllDirections(selectedId, 3);
+  else if (modeImpact) result = bfsUpward(selectedId, 3);
+  else {
+    // Normal: 1-hop
+    result = new Map([[selectedId, 0]]);
+    for (const lk of allLinks) {
+      if (lk.src === selectedId && !result.has(lk.tgt)) result.set(lk.tgt, 1);
+      if (lk.tgt === selectedId && !result.has(lk.src)) result.set(lk.src, 1);
+    }
+  }
+  return cardCascade(result);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RENDERING — MAIN
+// ─────────────────────────────────────────────────────────────────────────────
+
+function renderAll() {
+  resizeCanvas();
+  mCtx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+  mCtx.save();
+  mCtx.translate(panX, panY);
+  mCtx.scale(scale, scale);
+  drawScene(mCtx, nodePos, planBounds, allArtifacts, allLinks,
+            selectedId, getHighlightedNodes(), modeImpact || modeDeepDive);
+  mCtx.restore();
+  updateTierLabels();
+}
+
+function drawScene(ctx, positions, pBounds, artifacts, links, selId, highlighted, showDepthBadge) {
+  const hasSel = selId !== null;
+  const { effPos, containPos } = makePosHelpers(positions);
+
+  // Plan background regions
+  for (const [pid, bounds] of Object.entries(pBounds)) {
+    const col = TYPE_CONFIG.plan.color;
+    ctx.save();
+    ctx.globalAlpha = 0.06;
+    ctx.fillStyle   = col;
+    ctx.beginPath(); rrect(ctx, bounds.x, bounds.y, bounds.w, bounds.h, 10); ctx.fill();
+    ctx.globalAlpha = 0.22;
+    ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke();
+    ctx.restore();
+  }
+
+  // Uploaded references shaded band
+  const refNodes = Object.entries(artifacts).filter(([,a]) => resolvedType(a) === 'reference' && positions[a.id]);
+  if (refNodes.length > 0) {
+    const xs = refNodes.map(([,a]) => positions[a.id].x);
+    const rx1 = Math.min(...xs) - 20, rx2 = Math.max(...xs) + NODE_W + 20;
+    const ry  = TIER_Y['-1'] - 14, rh = NODE_H + 28;
+    ctx.save();
+    ctx.globalAlpha = 0.07; ctx.fillStyle = '#4493f8';
+    ctx.beginPath(); rrect(ctx, rx1, ry, rx2-rx1, rh, 8); ctx.fill();
+    ctx.globalAlpha = 0.18; ctx.strokeStyle = '#4493f8'; ctx.lineWidth = 1;
+    ctx.setLineDash([4,3]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.globalAlpha = 0.45; ctx.fillStyle = '#4493f8';
+    ctx.font = '700 8px -apple-system, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText('UPLOADED REFERENCES', rx1 + 8, ry + 4);
+    ctx.restore();
+  }
+
+  const edgeOrder = ['sourced_from','pins','contains'];
+  for (const lt of edgeOrder) {
+    for (const lk of links) {
+      if (lk.type !== lt) continue;
+      let sp, tp;
+      if (lt === 'contains') {
+        sp = effPos(lk.src);
+        tp = containPos(lk.src, lk.tgt);
+      } else {
+        sp = effPos(lk.src);
+        tp = effPos(lk.tgt);
+      }
+      if (!sp || !tp) continue;
+      const lcfg = LINK_CONFIG[lk.type] || LINK_CONFIG.contains;
+      let op = lt === 'contains' ? 0.4 : 0.45;
+      if (hasSel) {
+        const shC = highlighted && highlighted.has(lk.src);
+        const thC = highlighted && highlighted.has(lk.tgt);
+        op = (shC && thC) ? 0.9 : 0.04;
+      }
+      ctx.save(); ctx.globalAlpha = op;
+      drawEdge(ctx, sp, tp, lcfg, lt === 'contains');
+      ctx.restore();
+    }
+  }
+
+  // Ghost arcs: dashed purple arc from canonical to ghost container, visible in highlight mode
+  if (hasSel && highlighted) {
+    for (const lk of links) {
+      if (lk.type !== 'ghost') continue;
+      if (!highlighted.has(lk.src)) continue;
+      const ghostArt = artifacts[lk.tgt];
+      const arcTgtId = ghostArt?.ghostParent || lk.tgt;
+      const sp = effPos(lk.src);
+      const tp = effPos(arcTgtId);
+      if (!sp || !tp) continue;
+      ctx.save(); ctx.globalAlpha = 0.75;
+      drawEdge(ctx, sp, tp, LINK_CONFIG.ghost, false);
+      ctx.restore();
+    }
+  }
+
+  // Nodes — iterate nodePos which contains both canonical and visual IDs
+  for (const [vId, pos] of Object.entries(positions)) {
+    const canonId = canonicalOf[vId] || vId;
+    const art = artifacts[canonId];
+    if (!art) continue;
+    const cfg = cfgFor(art);
+    if (!cfg) continue;
+    let op = 1;
+    if (hasSel) {
+      const isHl = highlighted ? highlighted.has(canonId) : false;
+      if (!isHl) op = 0.1;
+    }
+    const depth = highlighted ? (highlighted.get(canonId) ?? null) : null;
+    const isSel = (canonId === selId);
+    drawNode(ctx, pos.x, pos.y, art, cfg, isSel, op, art.crossPlan, depth, showDepthBadge);
+  }
+}
+
+function drawEdge(ctx, src, tgt, lcfg, isContains) {
+  const sx = src.x + NODE_W / 2, sy = src.y + NODE_H;
+  const tx = tgt.x + NODE_W / 2, ty = tgt.y;
+  const dy = ty - sy;
+  const dx = tx - sx;
+
+  ctx.strokeStyle = lcfg.color;
+  ctx.lineWidth   = isContains ? 1.5 : 1;
+  if (lcfg.dash && lcfg.dash.length) ctx.setLineDash(lcfg.dash); else ctx.setLineDash([]);
+
+  if (Math.abs(dy) < NODE_H * 1.5) {
+    // Same or adjacent tier: draw a horizontal S-curve from right side of src to left side of tgt
+    const sx2 = src.x + NODE_W, sy2 = src.y + NODE_H / 2;
+    const tx2 = tgt.x,          ty2 = tgt.y  + NODE_H / 2;
+    const cx  = (sx2 + tx2) / 2;
+    ctx.beginPath();
+    ctx.moveTo(sx2, sy2);
+    ctx.bezierCurveTo(cx, sy2, cx, ty2, tx2, ty2);
+    ctx.stroke(); ctx.setLineDash([]);
+    drawArrow(ctx, sx2, sy2, cx, sy2, lcfg.color, isContains ? 7 : 5);
+  } else {
+    // Normal vertical curve: bottom of src → top of tgt
+    const cp1y = sy + dy * 0.45, cp2y = ty - dy * 0.45;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.bezierCurveTo(sx, cp1y, tx, cp2y, tx, ty);
+    ctx.stroke(); ctx.setLineDash([]);
+    // Arrowhead at the parent/source end — "this feeds into X"
+    drawArrow(ctx, sx, sy, sx, cp1y, lcfg.color, isContains ? 7 : 5);
+  }
+}
+
+function drawArrow(ctx, tipX, tipY, fromX, fromY, color, size) {
+  const angle = Math.atan2(tipY - fromY, tipX - fromX), sp = Math.PI / 6;
+  ctx.save(); ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(tipX - size * Math.cos(angle-sp), tipY - size * Math.sin(angle-sp));
+  ctx.lineTo(tipX - size * Math.cos(angle+sp), tipY - size * Math.sin(angle+sp));
+  ctx.closePath(); ctx.fill(); ctx.restore();
+}
+
+function drawNode(ctx, x, y, art, cfg, isSelected, opacity, _isCrossPlan, depth, showDepthBadge) {
+  const isGhost = !!art.isGhost;
+  ctx.save(); ctx.globalAlpha = opacity;
+  const w = NODE_W, h = NODE_H;
+
+  // Background
+  ctx.fillStyle = cfg.bg;
+  ctx.beginPath(); rrect(ctx, x, y, w, h, 5); ctx.fill();
+
+  // Border: ghost = purple dotted; normal = type color
+  if (isGhost) {
+    ctx.setLineDash([4, 3]);
+    ctx.strokeStyle = '#a855f7';
+    ctx.lineWidth   = 1.5;
+  } else {
+    ctx.strokeStyle = isSelected ? cfg.color : cfg.color + '55';
+    ctx.lineWidth   = isSelected ? 2 : 1;
+  }
+  ctx.stroke(); ctx.setLineDash([]);
+
+  // Left color bar (clipped)
+  ctx.save();
+  ctx.beginPath(); rrect(ctx, x, y, w, h, 5); ctx.clip();
+  ctx.fillStyle = isGhost ? '#a855f7' : cfg.color;
+  ctx.fillRect(x, y, 4, h);
+  ctx.restore();
+
+  // Type label
+  const typeColor = isGhost ? '#a855f7' : cfg.color;
+  ctx.fillStyle    = typeColor + 'bb';
+  ctx.font         = '9px -apple-system, sans-serif';
+  ctx.textAlign    = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText((isGhost ? '↗ ' : '') + cfg.label.toUpperCase(), x + 10, y + 7);
+
+  // Artifact label
+  ctx.fillStyle    = isGhost ? '#8b949e' : '#e6edf3';
+  ctx.font         = '600 11px -apple-system, sans-serif';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(truncText(ctx, art.label || art.id, w - 16), x + 10, y + 33);
+
+  // D-badge (not on ghosts)
+  if (!isGhost && showDepthBadge && depth !== null && depth !== undefined && depth > 0) {
+    const bd = Math.min(depth, 3);
+    const bgC = ['','#0d1b3e','#2a1f00','#2a1200'][bd];
+    const txC = ['','#58a6ff','#e3b341','#f0883e'][bd];
+    ctx.fillStyle = bgC;
+    ctx.beginPath(); rrect(ctx, x+7, y+h-14, 20, 11, 3); ctx.fill();
+    ctx.fillStyle    = txC;
+    ctx.font         = '700 8px -apple-system, sans-serif';
+    ctx.textAlign    = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('D'+bd, x+17, y+h-8);
+  }
+
+  ctx.restore();
+}
+
+function rrect(ctx, x, y, w, h, r) {
+  if (ctx.roundRect) { ctx.roundRect(x, y, w, h, r); return; }
+  ctx.moveTo(x+r, y);
+  ctx.lineTo(x+w-r, y); ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+  ctx.lineTo(x+w, y+h-r); ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+  ctx.lineTo(x+r, y+h); ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+  ctx.lineTo(x, y+r); ctx.quadraticCurveTo(x, y, x+r, y);
+  ctx.closePath();
+}
+
+function truncText(ctx, text, maxW) {
+  if (ctx.measureText(text).width <= maxW) return text;
+  let lo = 0, hi = text.length;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi + 1) / 2);
+    if (ctx.measureText(text.slice(0, mid) + '…').width <= maxW) lo = mid; else hi = mid - 1;
+  }
+  return text.slice(0, lo) + '…';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TIER LABELS (CSS-positioned, updated on pan/zoom)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function updateTierLabels() {
+  for (const [tier, ty] of Object.entries(TIER_Y)) {
+    const elId = tier === '-1' ? 'tl-ref' : 'tl-' + tier;
+    const el   = document.getElementById(elId);
+    if (!el) continue;
+    const screenY = (ty + NODE_H / 2) * scale + panY;
+    el.style.top  = screenY - 12 + 'px';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SIDEBAR
+// ─────────────────────────────────────────────────────────────────────────────
+
+function updateSidebar() {
+  if (!selectedId || !allArtifacts[selectedId]) {
+    sidebar.classList.add('hidden'); return;
+  }
+  sidebar.classList.remove('hidden');
+
+  const art = allArtifacts[selectedId];
+  const cfg = TYPE_CONFIG[art.type] || { color:'#8b949e', bg:'#161b22', label:art.type };
+
+  sbTypeBadge.textContent       = cfg.label;
+  sbTypeBadge.style.color       = cfg.color;
+  sbTypeBadge.style.borderColor = cfg.color + '66';
+  sbTypeBadge.style.background  = cfg.bg || '#161b22';
+  sbTitle.textContent = art.label || art.id;
+
+  const pm = planMeta[art.plan];
+  sbPlan.textContent  = pm ? 'Plan: ' + pm.title : 'Plan: ' + art.plan;
+
+  sbConnections.innerHTML = '';
+  const highlighted = getHighlightedNodes();
+
+  if (modeImpact || modeDeepDive) {
+    renderImpactSidebar(highlighted);
+  } else {
+    renderNormalSidebar();
+  }
+}
+
+function renderNormalSidebar() {
+  const inbound      = allLinks.filter(lk => lk.tgt === selectedId && allArtifacts[lk.src] && lk.type !== 'sourced_from');
+  const outbound     = allLinks.filter(lk => lk.src === selectedId && allArtifacts[lk.tgt] && lk.type !== 'sourced_from');
+  const sourcedFrom  = allLinks.filter(lk => lk.type === 'sourced_from' && lk.tgt === selectedId && allArtifacts[lk.src]);
+  const sourcedCards = allLinks.filter(lk => lk.type === 'sourced_from' && lk.src === selectedId && allArtifacts[lk.tgt]);
+
+  if (sourcedFrom.length) {
+    addSbSection('SOURCE DOCUMENT');
+    for (const lk of sourcedFrom) addSbItem(lk.src, 'sourced_from', null);
+  }
+  if (inbound.length) {
+    addSbSection('CONTAINED IN / PINNED BY');
+    for (const lk of inbound) addSbItem(lk.src, lk.type, null);
+  }
+  if (outbound.length) {
+    addSbSection('CONTAINS / PINS TO');
+    for (const lk of outbound) addSbItem(lk.tgt, lk.type, null);
+  }
+  if (sourcedCards.length) {
+    addSbSection('CARDS FROM THIS REFERENCE');
+    for (const lk of sourcedCards) addSbItem(lk.tgt, 'sourced_from', null);
+  }
+  if (!inbound.length && !outbound.length && !sourcedFrom.length && !sourcedCards.length) {
+    addSbSection('NO CONNECTIONS');
+  }
+}
+
+function renderImpactSidebar(highlighted) {
+  if (!highlighted) return;
+  const d1 = [], d2 = [], d3 = [];
+  for (const [id, depth] of highlighted) {
+    if (id === selectedId) continue;
+    if (depth === 1) d1.push(id);
+    else if (depth === 2) d2.push(id);
+    else d3.push(id);
+  }
+  const l1 = modeDeepDive ? 'WHERE IT EXISTS – DIRECT' : 'DIRECT IMPACT (D1)';
+  const l2 = modeDeepDive ? '2ND DEGREE'               : '2ND ORDER (D2)';
+  const l3 = modeDeepDive ? '3RD DEGREE'               : '3RD ORDER (D3)';
+  if (d1.length) { addSbSection(l1); for (const id of d1) addSbItem(id, null, 1); }
+  if (d2.length) { addSbSection(l2); for (const id of d2) addSbItem(id, null, 2); }
+  if (d3.length) { addSbSection(l3); for (const id of d3) addSbItem(id, null, 3); }
+  if (!d1.length && !d2.length && !d3.length) addSbSection('NO CONNECTIONS FOUND');
+}
+
+function addSbSection(title) {
+  const el = document.createElement('div');
+  el.className = 'sb-section-title'; el.textContent = title;
+  sbConnections.appendChild(el);
+}
+
+function addSbItem(id, linkType, depth) {
+  const art = allArtifacts[id]; if (!art) return;
+  const cfg = TYPE_CONFIG[art.type] || { color:'#8b949e' };
+
+  const item = document.createElement('div');
+  item.className = 'sb-item';
+  item.onclick   = () => selectNode(id);
+
+  const dot = document.createElement('div');
+  dot.className = 'sb-item-dot'; dot.style.background = cfg.color;
+  item.appendChild(dot);
+
+  const lbl = document.createElement('div');
+  lbl.className = 'sb-item-label'; lbl.title = art.label; lbl.textContent = art.label || id;
+  item.appendChild(lbl);
+
+  if (depth != null) {
+    const badge = document.createElement('div');
+    badge.className   = 'sb-badge d' + Math.min(depth, 3);
+    badge.textContent = 'D' + Math.min(depth, 3);
+    item.appendChild(badge);
+  } else if (linkType) {
+    const badge = document.createElement('div');
+    badge.className = 'sb-badge'; badge.textContent = linkType;
+    item.appendChild(badge);
+  }
+
+  sbConnections.appendChild(item);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SELECTION & HIT TESTING
+// ─────────────────────────────────────────────────────────────────────────────
+
+function selectNode(id) {
+  selectedId        = id;
+  btnFocus.disabled = false;
+  updateSidebar(); renderAll();
+  if (focusOpen) renderFocus();
+}
+
+function clearSelection() {
+  selectedId        = null;
+  btnFocus.disabled = true;
+  sidebar.classList.add('hidden');
+  renderAll();
+}
+
+function hitTest(cx, cy, positions, px, py, sc) {
+  const wx = (cx - px) / sc, wy = (cy - py) / sc;
+  const ids = Object.keys(positions);
+  for (let i = ids.length - 1; i >= 0; i--) {
+    const p = positions[ids[i]]; if (!p) continue;
+    if (wx >= p.x && wx <= p.x+NODE_W && wy >= p.y && wy <= p.y+NODE_H) {
+      return canonicalOf[ids[i]] || ids[i];
+    }
+  }
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FOCUS OVERLAY
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Focused BFS: follows pins/contains downward from startId; adds immediate parent
+// for context but does NOT cascade downward from the parent (avoids pulling in
+// the entire plan subtree when the parent is a plan node).
+function bfsFocused(startId, maxDepth) {
+  const visited = new Map([[startId, 0]]);
+  // Add immediate parent(s) for layout context only — not added to frontier
+  for (const lk of allLinks) {
+    if (lk.type === 'contains' && lk.tgt === startId && !visited.has(lk.src)) {
+      visited.set(lk.src, 1);
+    }
+    if (lk.type === 'ghost') {
+      const other = lk.src === startId ? lk.tgt : lk.tgt === startId ? lk.src : null;
+      if (other && !visited.has(other)) visited.set(other, 1);
+    }
+  }
+  let frontier = [startId];
+  for (let d = 1; d <= maxDepth; d++) {
+    const next = [];
+    for (const cur of frontier) {
+      for (const lk of allLinks) {
+        if (lk.type === 'ghost') {
+          const other = lk.src === cur ? lk.tgt : lk.tgt === cur ? lk.src : null;
+          if (other && !visited.has(other)) { visited.set(other, d); next.push(other); }
+          continue;
+        }
+        if (lk.type === 'pins') {
+          if (lk.src === cur && !visited.has(lk.tgt)) { visited.set(lk.tgt, d); next.push(lk.tgt); }
+          if (lk.tgt === cur && !visited.has(lk.src)) { visited.set(lk.src, d); next.push(lk.src); }
+        }
+        if (lk.type === 'contains' && lk.src === cur && !visited.has(lk.tgt)) {
+          visited.set(lk.tgt, d); next.push(lk.tgt);
+        }
+        if (lk.type === 'sourced_from' && lk.tgt === cur && !visited.has(lk.src)) {
+          visited.set(lk.src, d); next.push(lk.src);
+        }
+      }
+    }
+    frontier = next;
+    if (!frontier.length) break;
+  }
+  return visited;
+}
+
+function openFocus() {
+  if (!selectedId) return;
+  focusOpen = true;
+
+  const focused = bfsFocused(selectedId, 4);
+  focusNodeIds = [...focused.keys()].filter(id => allArtifacts[id]);
+  buildFocusLayout();
+  focusTitleEl.textContent = allArtifacts[selectedId]?.label || selectedId;
+  focusOverlay.classList.add('visible');
+
+  resizeFocusCanvas();
+  const r = computeFitView(focusCanvas, focusNodePos, Object.keys(focusNodePos));
+  fPanX = r.panX; fPanY = r.panY; fScale = r.scale;
+  renderFocus();
+}
+
+function closeFocus() {
+  focusOpen = false;
+  focusOverlay.classList.remove('visible');
+}
+
+function buildFocusLayout() {
+  focusNodePos    = {};
+  focusPlanBounds = {};
+
+  // Group by plan
+  const byPlan = {};
+  for (const id of focusNodeIds) {
+    const art = allArtifacts[id]; if (!art) continue;
+    const p = art.plan || 'unknown';
+    if (!byPlan[p]) byPlan[p] = [];
+    byPlan[p].push(id);
+  }
+
+  let curX = 40;
+  for (const [pid, ids] of Object.entries(byPlan)) {
+    const planSet = new Set(ids);
+
+    // Group by tier
+    const tierGroups = {};
+    for (const id of ids) {
+      const art = allArtifacts[id];
+      const cfg = cfgFor(art);
+      const tier = cfg?.tier ?? 0;
+      if (!tierGroups[tier]) tierGroups[tier] = [];
+      tierGroups[tier].push(id);
+    }
+
+    const planStartX = curX;
+    let maxColEnd = planStartX + NODE_W;
+
+    // ── Combined list + card layout (tiers 1 and 0) ─────────────────────────
+    // Map each card to its parent list within this plan's focus set
+    const cards0 = tierGroups[0] || [];
+    const lists1 = tierGroups[1] || [];
+
+    const cardToList = {};
+    for (const cardId of cards0) {
+      for (const lk of allLinks) {
+        if (lk.type === 'contains' && lk.tgt === cardId && planSet.has(lk.src)) {
+          if (allArtifacts[lk.src]?.type === 'list') { cardToList[cardId] = lk.src; break; }
+        }
+      }
+    }
+    const cardsByList = {};
+    for (const [cardId, listId] of Object.entries(cardToList)) {
+      if (!cardsByList[listId]) cardsByList[listId] = [];
+      cardsByList[listId].push(cardId);
+    }
+    const orphanCards = cards0.filter(id => !cardToList[id]);
+
+    let listCurX = planStartX;
+
+    for (const listId of lists1) {
+      const listCards = cardsByList[listId] || [];
+      if (listCards.length === 0) {
+        focusNodePos[listId] = { x: listCurX, y: TIER_Y[1] };
+        maxColEnd = Math.max(maxColEnd, listCurX + NODE_W);
+        listCurX += NODE_W + H_GAP;
+        continue;
+      }
+
+      const totalCols  = Math.ceil(listCards.length / CARD_STACK_MAX);
+      const colsPerRow = Math.min(totalCols, MAX_COLS_PER_ROW);
+
+      for (let i = 0; i < listCards.length; i++) {
+        const col      = Math.floor(i / CARD_STACK_MAX);
+        const row      = i % CARD_STACK_MAX;
+        const rowGroup = Math.floor(col / MAX_COLS_PER_ROW);
+        const colInRow = col % MAX_COLS_PER_ROW;
+        const vId = listCards[i] + '⊕' + listId;
+        focusNodePos[vId] = {
+          x: listCurX + colInRow * (NODE_W + H_GAP),
+          y: TIER_Y[0] + row * V_CARD_STEP + rowGroup * (CARD_STACK_MAX * V_CARD_STEP + CARD_ROW_GAP),
+        };
+        // Ghost card virtual IDs are not in the main canonicalOf map; register them here
+        // so drawScene can resolve vId → art for ghost items.
+        if (!canonicalOf[vId]) canonicalOf[vId] = listCards[i];
+        maxColEnd = Math.max(maxColEnd, listCurX + colInRow * (NODE_W + H_GAP) + NODE_W);
+      }
+
+      const listWidth = colsPerRow * NODE_W + (colsPerRow - 1) * H_GAP;
+      focusNodePos[listId] = { x: listCurX + listWidth / 2 - NODE_W / 2, y: TIER_Y[1] };
+      listCurX += listWidth + H_GAP;
+    }
+
+    // Cards without a parent list in the focus set
+    if (orphanCards.length > 0) {
+      for (let i = 0; i < orphanCards.length; i++) {
+        const col      = Math.floor(i / CARD_STACK_MAX);
+        const row      = i % CARD_STACK_MAX;
+        const rowGroup = Math.floor(col / MAX_COLS_PER_ROW);
+        const colInRow = col % MAX_COLS_PER_ROW;
+        focusNodePos[orphanCards[i]] = {
+          x: listCurX + colInRow * (NODE_W + H_GAP),
+          y: TIER_Y[0] + row * V_CARD_STEP + rowGroup * (CARD_STACK_MAX * V_CARD_STEP + CARD_ROW_GAP),
+        };
+        maxColEnd = Math.max(maxColEnd, listCurX + colInRow * (NODE_W + H_GAP) + NODE_W);
+      }
+      const orphanCols = Math.min(Math.ceil(orphanCards.length / CARD_STACK_MAX), MAX_COLS_PER_ROW);
+      listCurX += orphanCols * (NODE_W + H_GAP);
+    }
+
+    maxColEnd = Math.max(maxColEnd, listCurX > planStartX ? listCurX - H_GAP : planStartX + NODE_W);
+
+    // ── Higher tiers (2+): centered over the list/card block ────────────────
+    const layoutWidth = maxColEnd - planStartX;
+    const centerX     = planStartX + layoutWidth / 2;
+
+    const highTiers = Object.keys(tierGroups).map(Number).filter(t => t >= 2).sort((a, b) => b - a);
+    for (const tier of highTiers) {
+      const group  = tierGroups[tier];
+      const totalW = group.length * NODE_W + (group.length - 1) * H_GAP;
+      const gStartX = centerX - totalW / 2;
+      for (let i = 0; i < group.length; i++) {
+        focusNodePos[group[i]] = { x: gStartX + i * (NODE_W + H_GAP), y: TIER_Y[tier] };
+      }
+    }
+
+    // ── Plan bounds ──────────────────────────────────────────────────────────
+    let minX2 = Infinity, minY2 = Infinity, maxX2 = -Infinity, maxY2 = -Infinity;
+    for (const [vId, p] of Object.entries(focusNodePos)) {
+      const canonId = canonicalOf[vId] || vId;
+      const art = allArtifacts[canonId];
+      if (!art || art.plan !== pid) continue;
+      minX2 = Math.min(minX2, p.x);       minY2 = Math.min(minY2, p.y);
+      maxX2 = Math.max(maxX2, p.x+NODE_W); maxY2 = Math.max(maxY2, p.y+NODE_H);
+    }
+    if (isFinite(minX2)) {
+      focusPlanBounds[pid] = { x:minX2-12, y:minY2-12, w:maxX2-minX2+24, h:maxY2-minY2+24 };
+    }
+
+    curX = maxColEnd + PLAN_GAP;
+  }
+}
+
+function renderFocus() {
+  if (!focusOpen) return;
+  resizeFocusCanvas();
+  fCtx.clearRect(0, 0, focusCanvas.width, focusCanvas.height);
+  fCtx.save();
+  fCtx.translate(fPanX, fPanY);
+  fCtx.scale(fScale, fScale);
+
+  const focusSet   = new Set(focusNodeIds);
+  const focusLinks = allLinks.filter(lk => focusSet.has(lk.src) && focusSet.has(lk.tgt));
+  const focusArt   = {};
+  for (const id of focusNodeIds) { if (allArtifacts[id]) focusArt[id] = allArtifacts[id]; }
+
+  drawScene(fCtx, focusNodePos, focusPlanBounds, focusArt, focusLinks,
+            selectedId, getHighlightedNodes(), modeImpact || modeDeepDive);
+
+  fCtx.restore();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CANVAS INTERACTION — MAIN
+// ─────────────────────────────────────────────────────────────────────────────
+
+mainCanvas.addEventListener('mousedown', e => {
+  if (e.button === 0) {
+    const hit = hitTest(e.offsetX, e.offsetY, nodePos, panX, panY, scale);
+    if (hit) { selectNode(hit); return; }
+    clearSelection();
+    isPanning = true; panSX = e.clientX; panSY = e.clientY; panSPX = panX; panSPY = panY;
+    mainCanvas.classList.add('grabbing');
+  }
+  if (e.button === 1) {
+    e.preventDefault();
+    isPanning = true; panSX = e.clientX; panSY = e.clientY; panSPX = panX; panSPY = panY;
+    mainCanvas.classList.add('grabbing');
+  }
+});
+
+mainCanvas.addEventListener('mousemove', e => {
+  if (!isPanning) return;
+  panX = panSPX + (e.clientX - panSX); panY = panSPY + (e.clientY - panSY);
+  renderAll();
+});
+
+mainCanvas.addEventListener('mouseup',    () => { isPanning = false; mainCanvas.classList.remove('grabbing'); });
+mainCanvas.addEventListener('mouseleave', () => { isPanning = false; mainCanvas.classList.remove('grabbing'); });
+
+mainCanvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const f      = e.deltaY < 0 ? 1.1 : 0.9;
+  const ns     = Math.max(0.05, Math.min(5, scale * f));
+  panX   = e.offsetX - (e.offsetX - panX) * (ns / scale);
+  panY   = e.offsetY - (e.offsetY - panY) * (ns / scale);
+  scale  = ns; renderAll();
+}, { passive: false });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CANVAS INTERACTION — FOCUS
+// ─────────────────────────────────────────────────────────────────────────────
+
+focusCanvas.addEventListener('mousedown', e => {
+  if (e.button === 0) {
+    const hit = hitTest(e.offsetX, e.offsetY, focusNodePos, fPanX, fPanY, fScale);
+    if (hit) { selectNode(hit); renderFocus(); return; }
+    fIsPanning = true; fPanSX = e.clientX; fPanSY = e.clientY; fPanSPX = fPanX; fPanSPY = fPanY;
+    focusCanvas.classList.add('grabbing');
+  }
+  if (e.button === 1) {
+    e.preventDefault();
+    fIsPanning = true; fPanSX = e.clientX; fPanSY = e.clientY; fPanSPX = fPanX; fPanSPY = fPanY;
+    focusCanvas.classList.add('grabbing');
+  }
+});
+
+focusCanvas.addEventListener('mousemove', e => {
+  if (!fIsPanning) return;
+  fPanX = fPanSPX + (e.clientX - fPanSX); fPanY = fPanSPY + (e.clientY - fPanSY);
+  renderFocus();
+});
+
+focusCanvas.addEventListener('mouseup',    () => { fIsPanning = false; focusCanvas.classList.remove('grabbing'); });
+focusCanvas.addEventListener('mouseleave', () => { fIsPanning = false; focusCanvas.classList.remove('grabbing'); });
+
+focusCanvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const f   = e.deltaY < 0 ? 1.1 : 0.9;
+  const ns  = Math.max(0.05, Math.min(5, fScale * f));
+  fPanX  = e.offsetX - (e.offsetX - fPanX) * (ns / fScale);
+  fPanY  = e.offsetY - (e.offsetY - fPanY) * (ns / fScale);
+  fScale = ns; renderFocus();
+}, { passive: false });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TOOLBAR BUTTONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+btnReset.addEventListener('click', () => { resizeCanvas(); fitViewMain(); });
+
+btnImpact.addEventListener('click', () => {
+  modeImpact = !modeImpact;
+  if (modeImpact) modeDeepDive = false;
+  btnImpact.classList.toggle('active', modeImpact);
+  btnDeepDive.classList.toggle('active', false);
+  updateSidebar(); renderAll(); if (focusOpen) renderFocus();
+});
+
+btnDeepDive.addEventListener('click', () => {
+  modeDeepDive = !modeDeepDive;
+  if (modeDeepDive) modeImpact = false;
+  btnDeepDive.classList.toggle('active', modeDeepDive);
+  btnImpact.classList.toggle('active', false);
+  updateSidebar(); renderAll(); if (focusOpen) renderFocus();
+});
+
+btnFocus.addEventListener('click', openFocus);
+focusCloseEl.addEventListener('click', closeFocus);
+
+btnClear.addEventListener('click', () => {
+  loadedPlans  = []; allArtifacts = {}; allLinks = [];
+  planMeta     = {}; nodePos = {}; planBounds = {};
+  selectedId   = null; modeImpact = false; modeDeepDive = false;
+  btnImpact.classList.remove('active'); btnDeepDive.classList.remove('active');
+  btnFocus.disabled = true;
+  closeFocus();
+  sidebar.classList.add('hidden');
+  appEl.style.display        = 'none';
+  toolbarEl.style.display    = 'none';
+  tierLabelsEl.style.display = 'none';
+  dropScreen.style.display   = 'flex';
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DROP / FILE INPUT
+// ─────────────────────────────────────────────────────────────────────────────
+
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', ()  => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('over');
+  if (e.dataTransfer.files.length) loadFiles(e.dataTransfer.files);
+});
+
+fileInput.addEventListener('change', e => {
+  if (e.target.files.length) loadFiles(e.target.files);
+  e.target.value = '';
+});
+
+// Accept drops on main app to add more plans
+appEl.addEventListener('dragover', e => e.preventDefault());
+appEl.addEventListener('drop', e => {
+  e.preventDefault();
+  if (e.dataTransfer.files.length) loadFiles(e.dataTransfer.files);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RESIZE
+// ─────────────────────────────────────────────────────────────────────────────
+
+window.addEventListener('resize', () => {
+  resizeCanvas(); renderAll(); if (focusOpen) renderFocus();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────────────────────────────
+
+resizeCanvas();
+</script>
+</body>
+</html>
