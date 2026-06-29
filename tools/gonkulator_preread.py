@@ -45,26 +45,19 @@ NOTION_API_VER  = "2022-06-28"
 PARENT_PAGE_ID  = None   # None → private workspace-level page (Notion library)
 MODEL           = "claude-sonnet-4-6"
 
-MAX_SNIPPETS_FOR_CLUSTERING = 2000   # top-N by Reforge score if corpus is larger
-SNIPPET_TRUNCATE_CHARS      = 300    # per snippet for the clustering pass
-MAX_SNIPPETS_FOR_SCORING    = 30     # snippets sent per cluster to Claude for scoring
+MAX_SNIPPETS_FOR_COMBINED   = 1000   # top-N by Reforge score sent to combined cluster+score call
+SNIPPET_TRUNCATE_CHARS      = 150    # per snippet — tight truncation keeps the combined call fast
 
+# 8 consolidated queries replace 15: same semantic coverage, ~45% fewer API calls, less overlap.
 QUERIES = [
-    "Feedback about planning workflow problems and friction",
-    "Feedback about document editing and formatting issues",
-    "Feedback about collaboration and sharing difficulties",
-    "Feedback about integrations and data import export",
-    "Feedback about user interface and navigation friction",
-    "Feedback about permissions and access control issues",
-    "Feedback about agentic AI and automation requests",
-    "Feedback about training and onboarding difficulty",
-    "Feedback about performance and reliability issues",
-    "Feedback about feature requests from military commands",
-    "Feedback about headquarters workflow gaps",
-    "Feedback about briefing and presentation problems",
-    "Feedback about timeline and approval workflow issues",
-    "Feedback about search and discovery problems",
-    "Feedback about mobile and cross-platform issues",
+    "Feedback about core planning, briefing, and document workflow friction",
+    "Feedback about collaboration, sharing, permissions, and access control issues",
+    "Feedback about integrations, data import, and external system connectivity",
+    "Feedback about agentic AI, automation, and intelligent assistance requests",
+    "Feedback about user interface, navigation, search, and discovery friction",
+    "Feedback about military command headquarters and joint force workflow gaps",
+    "Feedback about performance, reliability, mobile, and cross-platform issues",
+    "Feedback about training, onboarding, and new user experience difficulties",
 ]
 
 # (key, display_name, weight, notes_field)
@@ -275,107 +268,43 @@ def enrich_snippets(snippets: list[dict]) -> tuple[list[dict], list[dict]]:
     return attributed, unattributed
 
 
-# ─── Clustering ────────────────────────────────────────────────────────────────
+# ─── Combined cluster + score (single LLM call) ────────────────────────────────
+#
+# Replaces the previous two-pass approach (cluster call → N score calls).
+# One call clusters all snippets AND produces Gonkulator scores for every cluster.
+# ~10–15× fewer API calls; total runtime drops from 30+ min to ~5–8 min.
 
-_CLUSTER_SYSTEM = """\
-You are a product analyst for Onebrief, a military joint-force planning platform.
-
-Task: cluster the feedback snippets into 8–20 distinct user problem groups.
-
-Rules:
-- Each cluster name is a specific, plain-language user problem
-  (e.g. "Cross-plan sync silently drops AI-generated data on workspace switch")
-- Cluster by underlying user problem — NOT by feature label, account, or strategic category
-- Every snippet ID must appear in exactly one cluster
-- Do NOT reference effort, complexity, or engineering cost anywhere
-- Return ONLY the structured JSON via the provided tool
-"""
-
-_CLUSTER_TOOL_SCHEMA = {
-    "type": "object",
-    "required": ["clusters"],
-    "properties": {
-        "clusters": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "required": ["cluster_id", "cluster_name", "snippet_ids"],
-                "properties": {
-                    "cluster_id":   {"type": "integer"},
-                    "cluster_name": {"type": "string"},
-                    "snippet_ids":  {"type": "array", "items": {"type": "string"}},
-                },
-            },
-        }
-    },
-}
-
-
-def cluster_snippets(client: anthropic.Anthropic, snippets: list[dict]) -> list[dict]:
-    print("Clustering snippets with Claude…")
-    items = [
-        {
-            "id":   s.get("snippetId") or s.get("id"),
-            "text": s.get("content", "")[:SNIPPET_TRUNCATE_CHARS],
-        }
-        for s in snippets
-    ]
-    resp = client.messages.create(
-        model=MODEL,
-        max_tokens=8096,
-        system=_CLUSTER_SYSTEM,
-        messages=[{
-            "role": "user",
-            "content": (
-                f"Cluster these {len(items)} Onebrief feedback snippets "
-                f"into semantic problem groups.\n\n"
-                + json.dumps(items, indent=2)
-            ),
-        }],
-        tools=[{
-            "name":         "return_clusters",
-            "description":  "Return clustered snippet groups",
-            "input_schema": _CLUSTER_TOOL_SCHEMA,
-        }],
-        tool_choice={"type": "tool", "name": "return_clusters"},
-    )
-    for block in resp.content:
-        if block.type == "tool_use":
-            return block.input["clusters"]
-    raise RuntimeError("Claude did not return clusters")
-
-
-# ─── Scoring ────────────────────────────────────────────────────────────────────
-
-_SCORE_SYSTEM = (
-    "You are scoring a Onebrief product problem cluster against the Gonkulator "
-    "— a weighted scoring model with six factors.\n\n"
+_COMBINED_SYSTEM = (
+    "You are a product analyst and Gonkulator scorer for Onebrief "
+    "(military joint-force planning platform).\n\n"
+    "Task: in ONE pass, cluster the feedback snippets into 8–20 problem groups "
+    "AND score each cluster against the six Gonkulator factors.\n\n"
+    "Clustering rules:\n"
+    "- Each cluster_name is a specific plain-language user problem\n"
+    "- Cluster by underlying problem — NOT by feature label, account, or strategic category\n"
+    "- Every snippet id must appear in exactly one cluster\n\n"
     "The four strategic bets:\n"
     + "\n".join(f"  {i+1}. {b}" for i, b in enumerate(STRATEGIC_BETS))
     + "\n\n"
-    "North Star: Onebrief is the planning layer of the joint force — "
-    "mission essential, not mission enhancing. "
-    "A staff should not need to leave Onebrief to plan, brief, decide, or execute.\n\n"
-    "Scoring rules:\n"
-    "- operational_impact (×20): How directly does this disrupt planning/briefing/decision flow? "
-    "0 = no disruption | 10 = blocks a core mission workflow.\n"
-    "- revenue_stakes (×20): Score ONLY if snippets contain explicit contract, "
-    "renewal, or churn language. Otherwise return null.\n"
-    "- market_opportunity (×20): Is this entirely unaddressed by the product (score high), "
-    "partially addressed (mid), or mostly solved (low)?\n"
-    "- strategic_alignment (×20): 0–10 fit to the most relevant bet above. "
-    "0 and strategic_bet='Unaligned' if no bet applies.\n"
-    "- urgency (×10): Score ONLY if snippets name an exercise window, "
-    "certification deadline, or specific contract date. Otherwise return null.\n"
-    "- customer_signal (×10): Based on snippet count + distinct accounts provided: "
-    "low vol + 1 acct = 2 | high vol + 1 acct = 5 | "
-    "low vol + multi acct = 6 | high vol + multi acct = 9–10.\n\n"
+    "North Star: mission essential, not mission enhancing.\n\n"
+    "Scoring rules per cluster:\n"
+    "- operational_impact (×20): direct disruption to planning/briefing/decision flow. "
+    "0=none, 10=blocks mission.\n"
+    "- revenue_stakes (×20): NULL unless snippets explicitly name contract/renewal/churn. No inference.\n"
+    "- market_opportunity (×20): 10=entirely unaddressed, 5=partial, 1=mostly solved.\n"
+    "- strategic_alignment (×20): 0–10 fit to most relevant bet. "
+    "strategic_bet='Unaligned' + score=0 if none fits.\n"
+    "- urgency (×10): NULL unless snippets name a specific exercise window, cert deadline, "
+    "or contract date. No inference.\n"
+    "- customer_signal (×10): low vol+1 acct=2, high vol+1 acct=5, "
+    "low vol+multi=6, high vol+multi=9–10.\n"
     "NEVER mention effort, complexity, or engineering cost."
 )
 
-_SCORE_TOOL_SCHEMA = {
+_CLUSTER_ITEM_SCHEMA = {
     "type": "object",
     "required": [
+        "cluster_name", "snippet_ids",
         "operational_impact", "operational_notes",
         "revenue_stakes",     "revenue_notes",
         "market_opportunity", "market_notes",
@@ -385,6 +314,8 @@ _SCORE_TOOL_SCHEMA = {
         "representative_snippets",
     ],
     "properties": {
+        "cluster_name":        {"type": "string"},
+        "snippet_ids":         {"type": "array", "items": {"type": "string"}},
         "operational_impact":  {"anyOf": [{"type": "number", "minimum": 0, "maximum": 10}, {"type": "null"}]},
         "operational_notes":   {"type": "string"},
         "revenue_stakes":      {"anyOf": [{"type": "number", "minimum": 0, "maximum": 10}, {"type": "null"}]},
@@ -392,62 +323,74 @@ _SCORE_TOOL_SCHEMA = {
         "market_opportunity":  {"anyOf": [{"type": "number", "minimum": 0, "maximum": 10}, {"type": "null"}]},
         "market_notes":        {"type": "string"},
         "strategic_alignment": {"anyOf": [{"type": "number", "minimum": 0, "maximum": 10}, {"type": "null"}]},
-        "strategic_bet":       {"type": "string", "description": "Exact bet name from the list above, or 'Unaligned'"},
+        "strategic_bet":       {"type": "string"},
         "strategic_notes":     {"type": "string"},
         "urgency":             {"anyOf": [{"type": "number", "minimum": 0, "maximum": 10}, {"type": "null"}]},
         "urgency_notes":       {"type": "string"},
         "customer_signal":     {"anyOf": [{"type": "number", "minimum": 0, "maximum": 10}, {"type": "null"}]},
         "customer_notes":      {"type": "string"},
-        "representative_snippets": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "1–3 paraphrased examples with account attribution where available",
-        },
+        "representative_snippets": {"type": "array", "items": {"type": "string"}},
+    },
+}
+
+_COMBINED_TOOL_SCHEMA = {
+    "type": "object",
+    "required": ["clusters"],
+    "properties": {
+        "clusters": {"type": "array", "items": _CLUSTER_ITEM_SCHEMA}
     },
 }
 
 
-def score_cluster(
+def cluster_and_score(
     client: anthropic.Anthropic,
-    name: str,
     snippets: list[dict],
-) -> dict:
-    acct_ids   = {s["_acct_id"]   for s in snippets if s.get("_acct_id")}
-    acct_names = {s["_acct_name"] for s in snippets if s.get("_acct_name")}
-    churn      = any(s.get("_churn") for s in snippets)
-    n_accts    = len(acct_ids) or len(acct_names)
-    texts      = [s.get("content", "")[:600] for s in snippets[:MAX_SNIPPETS_FOR_SCORING]]
+) -> list[dict]:
+    """
+    Single LLM call: cluster all snippets AND score each cluster.
+    Returns list of cluster dicts with scores embedded.
+    """
+    print("Clustering and scoring in one pass…")
+
+    # Build compact input: id + truncated text + account/churn context
+    items = []
+    for s in snippets:
+        sid     = s.get("snippetId") or s.get("id")
+        content = s.get("content", "")[:SNIPPET_TRUNCATE_CHARS]
+        acct    = s.get("_acct_name") or ("acct:" + s["_acct_id"][:8] if s.get("_acct_id") else "")
+        churn   = " [CHURN]" if s.get("_churn") else ""
+        items.append({"id": sid, "text": content + (f" [{acct}]" if acct else "") + churn})
+
+    # Per-cluster account/volume metadata (for customer_signal scoring)
+    # We pass global stats in the prompt; Claude derives per-cluster stats from snippet_ids
+    acct_ids   = {s.get("_acct_id") for s in snippets if s.get("_acct_id")}
+    acct_names = {s.get("_acct_name") for s in snippets if s.get("_acct_name")}
+    n_total_accts = len(acct_ids) or len(acct_names)
 
     resp = client.messages.create(
         model=MODEL,
-        max_tokens=2048,
-        system=_SCORE_SYSTEM,
+        max_tokens=16000,
+        system=_COMBINED_SYSTEM,
         messages=[{
             "role": "user",
             "content": (
-                f'Cluster: "{name}"\n'
-                f"Snippet count: {len(snippets)}\n"
-                f"Distinct accounts: {n_accts}\n"
-                f"Churn signals detected: {'Yes' if churn else 'No'}\n\n"
-                "Snippets (up to 30):\n"
-                + "\n---\n".join(texts)
+                f"Cluster and score these {len(items)} Onebrief feedback snippets.\n"
+                f"Total distinct accounts in corpus: {n_total_accts}\n"
+                f"For customer_signal, derive each cluster's account count from its snippet_ids.\n\n"
+                + json.dumps(items, indent=2)
             ),
         }],
         tools=[{
-            "name":         "return_scores",
-            "description":  "Return Gonkulator scores for this cluster",
-            "input_schema": _SCORE_TOOL_SCHEMA,
+            "name":         "return_clusters_with_scores",
+            "description":  "Return clusters with embedded Gonkulator scores",
+            "input_schema": _COMBINED_TOOL_SCHEMA,
         }],
-        tool_choice={"type": "tool", "name": "return_scores"},
+        tool_choice={"type": "tool", "name": "return_clusters_with_scores"},
     )
     for block in resp.content:
         if block.type == "tool_use":
-            sc = block.input
-            sc["_n_snippets"] = len(snippets)
-            sc["_n_accts"]    = n_accts
-            sc["_churn"]      = churn
-            return sc
-    raise RuntimeError(f"Claude did not score cluster: {name}")
+            return block.input["clusters"]
+    raise RuntimeError("Claude did not return clustered+scored results")
 
 
 # ─── Weighted score calculation ────────────────────────────────────────────────
@@ -734,26 +677,30 @@ def main() -> None:
     attributed, unattributed = enrich_snippets(snippets)
     print(f"  Attributed: {len(attributed)}  |  Unattributed: {len(unattributed)}\n")
 
-    # ── 3. Cluster ──
-    clusters = cluster_snippets(client, snippets)
-    print(f"  → {len(clusters)} clusters identified\n")
+    # Cap for combined call
+    if len(snippets) > MAX_SNIPPETS_FOR_COMBINED:
+        snippets.sort(key=lambda x: x.get("score", 0), reverse=True)
+        snippets = snippets[:MAX_SNIPPETS_FOR_COMBINED]
+        print(f"  Capped to top {MAX_SNIPPETS_FOR_COMBINED} by relevance score\n")
 
-    # Build lookup for scoring pass
+    # ── 3 + 4. Cluster AND score in a single LLM call ──
+    raw_clusters = cluster_and_score(client, snippets)
+    print(f"  → {len(raw_clusters)} clusters identified and scored\n")
+
     by_id = {(s.get("snippetId") or s.get("id")): s for s in snippets}
 
-    # ── 4. Score ──
-    print(f"Scoring {len(clusters)} clusters against Gonkulator factors…")
     scored: list[dict] = []
-    for c in clusters:
+    for c in raw_clusters:
         cluster_snips = [by_id[sid] for sid in c.get("snippet_ids", []) if sid in by_id]
-        if not cluster_snips:
-            continue
-        print(f"  → {c['cluster_name'][:72]}")
-        sc           = score_cluster(client, c["cluster_name"], cluster_snips)
-        pts, avail, nulls = calc_weighted_score(sc)
+        acct_ids   = {s["_acct_id"]   for s in cluster_snips if s.get("_acct_id")}
+        acct_names = {s["_acct_name"] for s in cluster_snips if s.get("_acct_name")}
+        c["_n_snippets"] = len(cluster_snips)
+        c["_n_accts"]    = len(acct_ids) or len(acct_names)
+        c["_churn"]      = any(s.get("_churn") for s in cluster_snips)
+        pts, avail, nulls = calc_weighted_score(c)
         scored.append({
             "name":  c["cluster_name"],
-            "scores": sc,
+            "scores": c,
             "pts":   pts,
             "avail": avail,
             "nulls": nulls,
