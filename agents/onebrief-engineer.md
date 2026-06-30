@@ -17,7 +17,7 @@ Build, debug, and extend features in the Onebrief bc monorepo. Primary context i
 | `agents/context/bc-architecture.md` | bc monorepo layout, collab OT API patterns, deploy workflow |
 | `agents/context/ods-components.md` | ODS v5 design system — all components with variants |
 | `agents/context/onebrief-product.md` | Customer hierarchy, business context, Figma contacts |
-| `agents/context/integrations.md` | Notion, Figma, Storybook MCP configuration |
+| `agents/context/integrations.md` | Notion, Figma configuration |
 | `docs/specs/artifact-map.md` | Artifact Syncs: full technical specification and API reference |
 
 ## Active Work
@@ -42,3 +42,4 @@ Claude Code sandbox cannot write to `/root/repos/bc/`. Workflow:
 2. Copy to `$TMPDIR/Claude/` (GitHub clone at `/tmp/claude-0/Claude/`)
 3. Commit and push to `joshlobdell-web/Claude` on `master`
 4. User manually cp's from `/tmp/claude-0/Claude/features/` to `/root/repos/bc/`
+
