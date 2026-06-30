@@ -156,27 +156,6 @@ Org key: `organization::1437730002211741036`
 | User Dashboard & Homepage | `L3VQLFDMoqsEhBLvhW9dDL` |
 | ODS v2 Whiteboard | `8wvUlvKferK1Xievxm3s5q` |
 
----
-
-## Storybook MCP Server
-
-Location: `/home/user/Claude/storybook-mcp/index.js`
-Live URL: `https://ods.onebrief.com` (IP-restricted)
-
-```json
-{
-  "mcpServers": {
-    "storybook-ods": {
-      "command": "node",
-      "args": ["/home/user/Claude/storybook-mcp/index.js"],
-      "env": {
-        "STORYBOOK_BASE_URL": "https://ods.onebrief.com",
-        "STORYBOOK_SESSION_COOKIE": ""
-      }
-    }
-  }
-}
-```
 
 ---
 
@@ -200,3 +179,4 @@ Live URL: `https://ods.onebrief.com` (IP-restricted)
 - Do not call out colleagues by name in documents
 - Do not continue proposing options after something has been tried and ruled out
 - When pushing to Notion, confirm the target page before writing
+
