@@ -1,4 +1,4 @@
-# Integrations — Notion, Figma, Storybook MCP
+# Integrations — Notion, Figma
 
 ## Notion Workspace
 
@@ -34,30 +34,4 @@ Key contacts:
 - **Alex Zelenak** (alex.zelenak@onebrief.com) — AI Assist designs
 - **Audrey Bastian** (audrey.bastian@onebrief.com) — Timelines designs
 
----
 
-## Storybook MCP Server
-
-Local MCP server for browsing the ODS component library.
-
-- Server: `/home/user/Claude/storybook-mcp/index.js` (on host machine)
-- Cached index: `/home/user/Claude/storybook-mcp/ods-index.json`
-- Live URL: `https://ods.onebrief.com` (IP-restricted, not reachable via WebFetch)
-
-To register in Claude Code settings (`~/.claude/settings.json`):
-```json
-{
-  "mcpServers": {
-    "storybook-ods": {
-      "command": "node",
-      "args": ["/home/user/Claude/storybook-mcp/index.js"],
-      "env": {
-        "STORYBOOK_BASE_URL": "https://ods.onebrief.com",
-        "STORYBOOK_SESSION_COOKIE": ""
-      }
-    }
-  }
-}
-```
-
-The `tools/storybook-mcp/` directory in this repo contains the server source. Keep the host machine copy at `/home/user/Claude/storybook-mcp/` in sync if changes are made.
