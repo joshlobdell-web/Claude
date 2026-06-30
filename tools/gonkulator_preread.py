@@ -27,6 +27,7 @@ import json
 import os
 import re
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,7 +46,7 @@ NOTION_API_VER  = "2022-06-28"
 PARENT_PAGE_ID  = None   # None → private workspace-level page (Notion library)
 MODEL           = "claude-sonnet-4-6"
 
-MAX_SNIPPETS_FOR_COMBINED   = 1000   # top-N by Reforge score sent to combined cluster+score call
+MAX_SNIPPETS_FOR_COMBINED   = 400    # top-N by Reforge score sent to combined cluster+score call
 SNIPPET_TRUNCATE_CHARS      = 150    # per snippet — tight truncation keeps the combined call fast
 
 # 8 consolidated queries replace 15: same semantic coverage, ~45% fewer API calls, less overlap.
@@ -204,16 +205,17 @@ def _run_query(token: str, query: str) -> list[dict]:
 
 def fetch_all_signal(token: str) -> tuple[list[dict], int]:
     """Run all queries concurrently, deduplicate, return (snippets, raw_count)."""
-    print(f"Pulling Reforge signal ({len(QUERIES)} queries, 5 concurrent)…")
+    t0 = time.time()
+    print(f"[1/4] Pulling Reforge signal ({len(QUERIES)} queries, 5 concurrent)…", flush=True)
     all_raw: list[dict] = []
 
     with ThreadPoolExecutor(max_workers=5) as pool:
         futures = {pool.submit(_run_query, token, q): q for q in QUERIES}
         for fut in as_completed(futures):
-            q   = futures[fut]
+            q     = futures[fut]
             snips = fut.result()
             all_raw.extend(snips)
-            print(f"  {len(snips):4d}  {q[:70]}")
+            print(f"  {len(snips):4d}  {q[:70]}", flush=True)
 
     raw_count = len(all_raw)
 
@@ -227,14 +229,15 @@ def fetch_all_signal(token: str) -> tuple[list[dict], int]:
     deduped = list(seen.values())
 
     # Cap for clustering: take top-scoring snippets if corpus is very large
-    if len(deduped) > MAX_SNIPPETS_FOR_CLUSTERING:
+    if len(deduped) > MAX_SNIPPETS_FOR_COMBINED:
         deduped.sort(key=lambda x: x.get("score", 0), reverse=True)
-        deduped = deduped[:MAX_SNIPPETS_FOR_CLUSTERING]
+        deduped = deduped[:MAX_SNIPPETS_FOR_COMBINED]
 
     print(
         f"\n  Raw: {raw_count}  →  Deduplicated: {len(seen)}"
-        + (f"  →  Capped to top: {len(deduped)}" if len(seen) > MAX_SNIPPETS_FOR_CLUSTERING else "")
-        + "\n"
+        + (f"  →  Capped to top: {len(deduped)}" if len(seen) > MAX_SNIPPETS_FOR_COMBINED else "")
+        + f"  ({time.time()-t0:.0f}s)\n",
+        flush=True,
     )
     return deduped, raw_count
 
@@ -350,8 +353,6 @@ def cluster_and_score(
     Single LLM call: cluster all snippets AND score each cluster.
     Returns list of cluster dicts with scores embedded.
     """
-    print("Clustering and scoring in one pass…")
-
     # Build compact input: id + truncated text + account/churn context
     items = []
     for s in snippets:
@@ -361,13 +362,22 @@ def cluster_and_score(
         churn   = " [CHURN]" if s.get("_churn") else ""
         items.append({"id": sid, "text": content + (f" [{acct}]" if acct else "") + churn})
 
-    # Per-cluster account/volume metadata (for customer_signal scoring)
-    # We pass global stats in the prompt; Claude derives per-cluster stats from snippet_ids
     acct_ids   = {s.get("_acct_id") for s in snippets if s.get("_acct_id")}
     acct_names = {s.get("_acct_name") for s in snippets if s.get("_acct_name")}
     n_total_accts = len(acct_ids) or len(acct_names)
 
-    resp = client.messages.create(
+    payload = json.dumps(items, indent=2)
+    est_input_tokens = (len(payload) + len(_COMBINED_SYSTEM)) // 4 + 1000
+    print(
+        f"[3/4] Clustering and scoring {len(items)} snippets "
+        f"(~{est_input_tokens:,} input tokens est.)…",
+        flush=True,
+    )
+
+    t0 = time.time()
+    chars = 0
+
+    with client.messages.stream(
         model=MODEL,
         max_tokens=16000,
         system=_COMBINED_SYSTEM,
@@ -377,7 +387,7 @@ def cluster_and_score(
                 f"Cluster and score these {len(items)} Onebrief feedback snippets.\n"
                 f"Total distinct accounts in corpus: {n_total_accts}\n"
                 f"For customer_signal, derive each cluster's account count from its snippet_ids.\n\n"
-                + json.dumps(items, indent=2)
+                + payload
             ),
         }],
         tools=[{
@@ -386,8 +396,23 @@ def cluster_and_score(
             "input_schema": _COMBINED_TOOL_SCHEMA,
         }],
         tool_choice={"type": "tool", "name": "return_clusters_with_scores"},
+    ) as stream:
+        for event in stream:
+            if (getattr(event, "type", "") == "content_block_delta"
+                    and getattr(getattr(event, "delta", None), "type", "") == "input_json_delta"):
+                prev = chars
+                chars += len(event.delta.partial_json)
+                if chars // 500 > prev // 500:
+                    print(".", end="", flush=True)
+        final = stream.get_final_message()
+
+    elapsed = time.time() - t0
+    print(
+        f" done ({elapsed:.0f}s, {final.usage.output_tokens} output tokens)",
+        flush=True,
     )
-    for block in resp.content:
+
+    for block in final.content:
         if block.type == "tool_use":
             return block.input["clusters"]
     raise RuntimeError("Claude did not return clustered+scored results")
@@ -659,9 +684,9 @@ def main() -> None:
     dt_str   = now.strftime("%Y-%m-%d %H:%M UTC")
     title    = f"Gonkulator Pre-Read — {date_str}"
 
-    print(f"\n{'═' * 62}")
-    print(f"  Gonkulator Pre-Read Generator  ·  {dt_str}")
-    print(f"{'═' * 62}\n")
+    print(f"\n{'═' * 62}", flush=True)
+    print(f"  Gonkulator Pre-Read Generator  ·  {dt_str}", flush=True)
+    print(f"{'═' * 62}\n", flush=True)
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -670,22 +695,30 @@ def main() -> None:
     tokens = load_tokens()
     client = anthropic.Anthropic(api_key=api_key)
 
+    run_t0 = time.time()
+
     # ── 1. Pull signal ──
     snippets, raw_count = fetch_all_signal(tokens["reforge"])
 
     # ── 2. Enrich ──
+    t2 = time.time()
+    print(f"[2/4] Enriching snippets (account attribution, churn detection)…", flush=True)
     attributed, unattributed = enrich_snippets(snippets)
-    print(f"  Attributed: {len(attributed)}  |  Unattributed: {len(unattributed)}\n")
+    print(
+        f"  Attributed: {len(attributed)}  |  Unattributed: {len(unattributed)}"
+        f"  ({time.time()-t2:.0f}s)\n",
+        flush=True,
+    )
 
-    # Cap for combined call
+    # Cap for combined call (fetch_all_signal already caps, but defensive in case enrich changed list)
     if len(snippets) > MAX_SNIPPETS_FOR_COMBINED:
         snippets.sort(key=lambda x: x.get("score", 0), reverse=True)
         snippets = snippets[:MAX_SNIPPETS_FOR_COMBINED]
-        print(f"  Capped to top {MAX_SNIPPETS_FOR_COMBINED} by relevance score\n")
+        print(f"  Capped to top {MAX_SNIPPETS_FOR_COMBINED} by relevance score\n", flush=True)
 
     # ── 3 + 4. Cluster AND score in a single LLM call ──
     raw_clusters = cluster_and_score(client, snippets)
-    print(f"  → {len(raw_clusters)} clusters identified and scored\n")
+    print(f"  → {len(raw_clusters)} clusters identified and scored\n", flush=True)
 
     by_id = {(s.get("snippetId") or s.get("id")): s for s in snippets}
 
@@ -721,13 +754,17 @@ def main() -> None:
     }
 
     # ── 6. Write to Notion ──
-    print(f"\nBuilding Notion page: '{title}'…")
+    t6 = time.time()
+    print(f"[4/4] Writing to Notion: '{title}'…", flush=True)
     blocks   = build_notion_blocks(ranked, unattributed, incomplete, meta)
     page_url = create_notion_page(tokens["notion"], title, blocks)
+    print(f"  Notion write: {time.time()-t6:.0f}s", flush=True)
 
+    total_elapsed = time.time() - run_t0
     print(f"\n{'═' * 62}")
     print(f"  ✓  {page_url}")
     print(f"     {len(ranked)} clusters  ·  {n_complete} complete  ·  {len(incomplete)} incomplete")
+    print(f"     Total runtime: {total_elapsed:.0f}s")
     print(f"{'═' * 62}\n")
 
 
