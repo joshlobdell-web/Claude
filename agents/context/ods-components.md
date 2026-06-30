@@ -1,7 +1,7 @@
 # ODS Component Library — Onebrief Design System v5
 
 All components are prefixed `ODS` and built in React/TypeScript.
-Live reference: `https://ods.onebrief.com` (IP-restricted — use Storybook MCP or cached index)
+Live reference: `https://ods.onebrief.com` (IP-restricted)
 
 ## Buttons & Controls
 - **ODSButton** — Default, CTA, Quiet, Outline, Toolbar, Toggle, Icon Only; sizes XS–LG
@@ -65,7 +65,7 @@ Live reference: `https://ods.onebrief.com` (IP-restricted — use Storybook MCP 
 - **ODSAnimation** — Progress, Fade
 - **ODSDotDotDot**
 
-## Documentation Sections in Storybook
+## Documentation Sections
 
 - **Styling** — Colors, Spacing, Sizing, Text, Units, Dark UI, Z-Index
 - **Icons** — Font Awesome catalog + ODS custom set
@@ -96,3 +96,4 @@ Colors used across bc-app and Artifact Map — light theme:
 | Ghost / sync indicator | `#7357ff` |
 | Tooltip background | `#1e2530` |
 | Tooltip text | `#f0f4f8` |
+
