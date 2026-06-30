@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Optional
 
 import anthropic
+import certifi
 import requests
 
 
@@ -154,6 +155,7 @@ def _mcp_call(url: str, token: str, tool: str, args: dict):
         },
         timeout=90,
         stream=True,
+        verify=certifi.where(),
     )
     resp.raise_for_status()
 
@@ -715,6 +717,9 @@ def main() -> None:
         snippets.sort(key=lambda x: x.get("score", 0), reverse=True)
         snippets = snippets[:MAX_SNIPPETS_FOR_COMBINED]
         print(f"  Capped to top {MAX_SNIPPETS_FOR_COMBINED} by relevance score\n", flush=True)
+
+    if not snippets:
+        sys.exit("ERROR: No snippets retrieved from Reforge — all queries failed. Check auth tokens and network.")
 
     # ── 3 + 4. Cluster AND score in a single LLM call ──
     raw_clusters = cluster_and_score(client, snippets)
